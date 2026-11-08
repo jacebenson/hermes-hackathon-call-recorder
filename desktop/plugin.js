@@ -215,6 +215,19 @@ function RecorderPane({ ctx }) {
             children: cfg.host_mode === 'auto' ? 'auto: ' + cfg.why : cfg.why
           })
         : null,
+      jsx('div', {
+        className: cn(
+          'text-[0.6875rem] leading-snug',
+          cfg.transcription ? 'text-(--ui-text-quaternary)' : 'text-amber-500'
+        ),
+        children: cfg.transcription
+          ? 'whisper: ' +
+            (cfg.transcription_mode === 'auto' ? 'found ' : '') +
+            (cfg.transcription_detail || 'available')
+          : 'whisper: not found on ' +
+            (cfg.host || 'that machine') +
+            ' - recording only'
+      }),
       jsxs('div', {
         className: 'flex items-center gap-2',
         children: [
