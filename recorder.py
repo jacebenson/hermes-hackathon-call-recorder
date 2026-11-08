@@ -408,6 +408,12 @@ def from_settings(settings: dict) -> Recorder:
 # which machine to record
 # --------------------------------------------------------------------------- #
 
+# Only known call apps count as a call in progress. Counting every stream would be
+# wrong twice over: it would treat a music player as a call, and this plugin's own
+# ffmpeg capture (application.name "Lavf…") as one, so a recording would look like a
+# call that never ends and auto-stop would never fire.
+_CALL_APP_PATTERN = "|".join(CALL_APPS)
+
 PROBE_SCRIPT = (
     'echo HOST=$(uname -n 2>/dev/null || hostname 2>/dev/null); '
     'command -v pactl >/dev/null 2>&1 && echo PIPEWIRE=1 || echo PIPEWIRE=0; '
@@ -415,8 +421,19 @@ PROBE_SCRIPT = (
     'systemctl --user is-system-running 2>/dev/null | sed "s/^/SYSTEMD=/"; '
     'pactl get-default-sink 2>/dev/null | sed "s/^/SINK=/"; '
     'pactl get-default-source 2>/dev/null | sed "s/^/SOURCE=/"; '
+    'pactl list sink-inputs 2>/dev/null '
+    f'| grep -ciE \'application.name = "({_CALL_APP_PATTERN})\' | sed "s/^/PLAYING=/"; '
+    'pactl list source-outputs 2>/dev/null '
+    f'| grep -ciE \'application.name = "({_CALL_APP_PATTERN})\' | sed "s/^/CAPTURING=/"; '
     'true'
 )
+
+
+def _count(value: str | None) -> int:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return 0
 
 
 def probe(host: str | None = None, timeout: int = 8) -> dict:
@@ -444,6 +461,8 @@ def probe(host: str | None = None, timeout: int = 8) -> dict:
         "source": found.get("SOURCE") or None,
         "can_record": reachable and found.get("PIPEWIRE") == "1" and found.get("FFMPEG") == "1",
         "has_audio": bool(found.get("SINK")),
+        # Both directions in use is the closest thing to "someone is on a call here".
+        "in_call": _count(found.get("PLAYING")) > 0 and _count(found.get("CAPTURING")) > 0,
     }
 
 
@@ -496,6 +515,13 @@ def choose_source(configured_host: str = "", candidates: list[dict] | None = Non
 
     if candidates is not None:
         local = candidates[0] if candidates else {}
+        for candidate in candidates:
+            if candidate.get("in_call") and candidate.get("can_record"):
+                return {"host": "" if candidate is local else candidate["target"],
+                        "mode": "local" if candidate is local else "auto",
+                        "probe": candidate,
+                        "why": "a call is in progress on this machine"
+                        if candidate is local else f"a call is in progress on {candidate['target']}"}
         if local.get("has_audio") and local.get("can_record"):
             return {"host": "", "mode": "local", "probe": local,
                     "why": "this machine has a microphone and audio output"}
@@ -507,18 +533,32 @@ def choose_source(configured_host: str = "", candidates: list[dict] | None = Non
         return {"host": "", "mode": "none", "probe": local,
                 "why": "no machine with a microphone was found - set one in settings"}
 
-    # Lazy on purpose: probing every SSH alias costs seconds, and the local answer
-    # is usually the right one.
+    # Lazy on purpose: probing every SSH alias costs seconds.
+    #
+    # Order matters. A call in progress beats mere audio hardware, because with two
+    # desks the question is not "which box has a microphone" but "which box am I
+    # sitting at" - and the one where a call app is holding the mic is the answer.
     local = probe(None)
+    if local.get("in_call") and local.get("can_record"):
+        return {"host": "", "mode": "local", "probe": local,
+                "why": "a call is in progress on this machine"}
+
+    seen: list[dict] = []
+    for alias in ssh_aliases()[:12]:
+        candidate = probe(alias, timeout=4)
+        if candidate.get("in_call") and candidate.get("can_record"):
+            return {"host": alias, "mode": "auto", "probe": candidate,
+                    "why": f"a call is in progress on {alias}"}
+        seen.append(candidate)
+
     if local.get("has_audio") and local.get("can_record"):
         return {"host": "", "mode": "local", "probe": local,
                 "why": "this machine has a microphone and audio output"}
-    for alias in ssh_aliases()[:12]:
-        candidate = probe(alias, timeout=4)
+    for candidate in seen:
         if candidate.get("can_record") and candidate.get("has_audio"):
             local_name = local.get("hostname") or "this machine"
-            return {"host": alias, "mode": "auto", "probe": candidate,
-                    "why": f"{local_name} has no audio devices; {alias} does"}
+            return {"host": candidate["target"], "mode": "auto", "probe": candidate,
+                    "why": f"{local_name} has no audio devices; {candidate['target']} does"}
     return {"host": "", "mode": "none", "probe": local,
             "why": "no machine with a microphone was found - set one in settings"}
 

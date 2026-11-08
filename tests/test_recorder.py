@@ -216,10 +216,10 @@ class DetectionTests(unittest.TestCase):
     """Which machine gets recorded, and can we explain the choice."""
 
     @staticmethod
-    def machine(target, audio=True, record=True):
+    def machine(target, audio=True, record=True, in_call=False):
         return {"target": target, "reachable": True, "hostname": target,
                 "can_record": record, "has_audio": audio, "sink": "sink" if audio else None,
-                "source": "mic" if audio else None}
+                "source": "mic" if audio else None, "in_call": in_call}
 
     def test_a_configured_machine_wins(self):
         original = recorder_mod.probe
@@ -247,6 +247,24 @@ class DetectionTests(unittest.TestCase):
             "", candidates=[self.machine("gateway", audio=False), self.machine("server", audio=False)])
         self.assertEqual(choice["mode"], "none")
         self.assertIn("set one in settings", choice["why"])
+
+
+    def test_the_desk_you_are_sitting_at_beats_the_first_box_with_a_mic(self):
+        """Two desks, one SSH config: the call in progress decides, not alias order."""
+        choice = recorder_mod.choose_source("", candidates=[
+            self.machine("gateway", audio=False),
+            self.machine("desk-a"),                    # has audio, idle
+            self.machine("desk-b", in_call=True),      # where the call actually is
+        ])
+        self.assertEqual((choice["mode"], choice["host"]), ("auto", "desk-b"))
+        self.assertIn("a call is in progress on desk-b", choice["why"])
+
+    def test_a_call_on_this_machine_keeps_it_local(self):
+        choice = recorder_mod.choose_source("", candidates=[
+            self.machine("gateway", audio=False, in_call=True),
+        ])
+        self.assertEqual((choice["mode"], choice["host"]), ("local", ""))
+        self.assertIn("call is in progress on this machine", choice["why"])
 
     def test_ssh_commands_are_quoted_once(self):
         """ssh joins argv with spaces; an unquoted multi-word command word-splits remotely."""
