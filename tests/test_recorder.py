@@ -304,9 +304,37 @@ class DetectionTests(unittest.TestCase):
         # quoted argument, or the remote shell word-splits the pipeline.
         self.assertTrue(command.startswith("bash -lc "))
         inner = command[len("bash -lc "):]
-        self.assertEqual(shlex.split(inner), ["pactl get-default-sink && echo done"])
+        # One argv element for the remote shell, with the session environment ahead
+        # of it and the caller's command intact at the end.
+        parts = shlex.split(inner)
+        self.assertEqual(len(parts), 1)
+        self.assertTrue(parts[0].endswith("pactl get-default-sink && echo done"))
 
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SessionEnvironmentTests(unittest.TestCase):
+    """A service backend has no session environment; pactl needs it anyway."""
+
+    def _rec(self, os_name):
+        from recorder import Recorder
+        return Recorder(host=None, os_name=os_name,
+                        state_file="/tmp/callrec-test-state.json")
+
+    def test_posix_commands_carry_the_session_environment(self):
+        argv = self._rec("linux").shell_argv("pactl get-default-sink")
+        joined = " ".join(argv)
+        self.assertIn("XDG_RUNTIME_DIR", joined)
+        self.assertIn("DBUS_SESSION_BUS_ADDRESS", joined)
+        self.assertIn("pactl get-default-sink", joined)
+
+    def test_the_environment_is_exported_once_not_twice(self):
+        joined = " ".join(self._rec("linux").shell_argv("true"))
+        self.assertEqual(joined.count("export XDG_RUNTIME_DIR"), 1)
+
+    def test_windows_commands_are_left_alone(self):
+        argv = self._rec("windows").shell_argv("Get-Date")
+        self.assertNotIn("XDG_RUNTIME_DIR", " ".join(argv))

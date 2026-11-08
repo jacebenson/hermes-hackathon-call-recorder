@@ -162,8 +162,18 @@ class Recorder:
 
     # -- shell plumbing ----------------------------------------------------- #
 
+    # A Hermes backend started as a service inherits almost no session environment,
+    # and without these two variables pactl answers "Connection refused" while the
+    # desktop it is recording sits there playing audio. Export both, defaulting to
+    # this user's runtime directory.
+    SESSION_ENV = ('export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; '
+                   'export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-'
+                   'unix:path=$XDG_RUNTIME_DIR/bus}"; ')
+
     def shell_argv(self, command: str) -> list[str]:
         """The argv that runs *command* on this machine, quoted for ssh when remote."""
+        if self.os_name != "windows":
+            command = self.SESSION_ENV + command
         if self.os_name == "windows":
             inner = ["powershell", "-NoProfile", "-NonInteractive", "-Command", command]
         else:
