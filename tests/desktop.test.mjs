@@ -183,10 +183,10 @@ for (const stored of [true, false]) {
   const row = nodes(tree).find(n => n.type === 'button' && nodes(n).some(c => c.props.children === 'Library item'))
   const rowText = nodes(row).flatMap(n => [n.props.children].flat(Infinity)).filter(v => typeof v === 'string').join('')
   assert(rowText.includes('original-capture-host'))
-  assert(rowText.includes(stored ? 'stored' : 'remote-only'))
+  assert(nodes(row).some(n => n.props.children === (stored ? 'remote on original-capture-host' : 'local on original-capture-host')))
   assert(!rowText.includes('new-capture-host'))
   if (!stored) {
-    assert(!rowText.includes(' · stored'))
+    assert(!rowText.includes('remote on original-capture-host'))
     assert(nodes(tree).some(n => n.props.children === 'Copy failed: disk full'))
   }
   row.props.onClick()

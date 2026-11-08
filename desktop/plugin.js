@@ -642,7 +642,7 @@ function RecorderPane({ ctx }) {
                             jsx('span', { className: 'block truncate', children: r.title || friendlyName(r.name) }),
                             jsx('span', {
                               className: 'block truncate text-(--ui-text-quaternary)',
-                              children: (r.machine || cfg.host_label || cfg.host || 'local') + (r.stored ? ' · stored' : ' · remote-only')
+                              children: (r.stored ? 'remote on ' : 'local on ') + (r.machine || cfg.host_label || cfg.host || 'local')
                             })
                           ]
                         }),
