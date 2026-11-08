@@ -87,8 +87,8 @@ class SettingsTests(unittest.TestCase):
             choice = plugin_api.resolved_source(force=True)
         self.assertEqual((choice["host"], choice["mode"]), ("", "local"))
         self.assertIn("Hermes runs on", choice["why"])
-        self._write_manifest_settings({"host": "beast-1"})
-        self.assertEqual(plugin_api.resolved_source()["host"], "beast-1")
+        self._write_manifest_settings({"host": "laptop"})
+        self.assertEqual(plugin_api.resolved_source()["host"], "laptop")
         self._write_manifest_settings({"host": ""})
         self.assertEqual(plugin_api.resolved_source()["mode"], "local")
 

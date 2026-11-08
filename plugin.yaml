@@ -1,5 +1,5 @@
 name: call-recorder
-version: "1.3.2"
+version: "1.3.3"
 requires_hermes: ">=0.23.0"
 license: MIT
 homepage: https://github.com/jacebenson/hermes-hackathon-call-recorder
@@ -13,8 +13,9 @@ config_schema:
     label: 1. Recording machine (empty means this Hermes machine)
     description: Leave it empty to record on the machine Hermes runs on. To record
       somewhere else, name that machine and make sure Hermes can ssh to it without
-      a password. Hermes on pro-1, microphone on beast-1 means host is beast-1 and
-      pro-1 needs a working SSH key to beast-1. From pro-1, run ssh beast-1 true;
+      a password. Hermes on a server with the microphone on a laptop means host is
+      the laptop, and the server needs a working SSH key to it. From the machine
+      running Hermes, run ssh <that machine> true;
       it must return without asking for a password. Use Test in the pane for the
       in-app connection check.
     default: ""

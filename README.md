@@ -63,11 +63,12 @@ when the call ends. Leave `host` empty to record on the machine Hermes runs on.
 To record somewhere else, name that machine and make sure Hermes can `ssh` to it
 without a password. There is no host discovery.
 
-For example, Hermes on `pro-1` with the microphone on `beast-1` means `host` is
-`beast-1`. `pro-1` needs a working SSH key to `beast-1`. From a shell on `pro-1`, run:
+For example, Hermes running on a server called `hermes-host`, with the microphone on a
+laptop called `laptop`, means `host` is `laptop`, and `hermes-host` needs a working SSH
+key to `laptop`. From a shell on the machine running Hermes, run:
 
 ```bash
-ssh beast-1 true
+ssh laptop true
 ```
 
 It must return without asking for a password. In the pane, press `Test` next to

@@ -139,7 +139,7 @@ class DiagnoseTests(unittest.TestCase):
 
     def test_route_checks_explicit_local_and_remote_with_same_shape(self):
         shapes = []
-        for host in ['', 'beast-1']:
+        for host in ['', 'laptop']:
             with patch.object(api, 'settings', return_value={**api.DEFAULTS, 'host': host}), \
                  patch.object(Recorder, 'run', return_value=(255, 'refused')), \
                  patch('subprocess.run', return_value=subprocess.CompletedProcess([], 255, '', 'refused')):

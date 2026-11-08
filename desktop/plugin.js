@@ -403,6 +403,12 @@ function RecorderPane({ ctx }) {
           })
         ]
       }),
+      status.isError
+        ? jsx('div', {
+            className: 'text-[0.6875rem] leading-snug text-(--ui-text-quaternary)',
+            children: 'This window is talking to a Hermes backend that is not answering for this plugin. If the plugin is installed somewhere else, open Settings and check where it is enabled.'
+          })
+        : null,
       cfg.why
         ? jsx('div', {
             className: 'text-[0.6875rem] leading-snug text-(--ui-text-quaternary)',
@@ -487,6 +493,14 @@ function RecorderPane({ ctx }) {
               }
             },
             children: 'Test'
+          }),
+          jsx(Button, {
+            size: 'sm', variant: 'secondary', disabled: busy,
+            title: 'Where this plugin is installed and enabled',
+            // The usual reason the pane cannot reach its backend is that the plugin
+            // is not enabled on the backend this window is talking to.
+            onClick: () => host.navigate('/capabilities?tab=plugins'),
+            children: 'Settings'
           })
         ]
       }),

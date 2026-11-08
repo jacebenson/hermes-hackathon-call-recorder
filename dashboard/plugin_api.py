@@ -214,9 +214,13 @@ def _transcribe(rec, path: str) -> dict:
     transc = resolved_transcription()
     script = transc.get("live_script") or ""
     archive = script.replace("live.py", "archive.py") if script.endswith("live.py") else ""
+    # A machine with no CUDA libraries is CPU only: say so instead of asking Whisper
+    # for a device it does not have, which fails the whole run.
+    cuda = bool(transc.get("ld_library_path"))
     env = {"LD_LIBRARY_PATH": transc.get("ld_library_path") or "",
            "WHISPER_MODEL": transc.get("model") or "",
-           "WHISPER_DEVICE": "cuda", "WHISPER_COMPUTE": "float16"}
+           "WHISPER_DEVICE": "cuda" if cuda else "cpu",
+           "WHISPER_COMPUTE": "float16" if cuda else "int8"}
     return run_transcription(rec, path,
                              gpu_python=transc.get("python") or "",
                              gpu_script=archive, gpu_env=env,
