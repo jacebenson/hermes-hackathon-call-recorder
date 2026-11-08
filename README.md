@@ -159,6 +159,10 @@ Then two settings, both required:
 Step two is the one people skip: without it the room goes silent, because the call's
 audio is being captured by us instead of played to you. Volume still works normally.
 
+A note from doing this over SSH: the driver files land, but the device only appears
+after the machine reboots, and the installer's own dialog needs a real desktop session.
+Plan for one reboot, at the machine, not from a remote shell.
+
 Now `Readiness` turns `ready`, and recordings are named `call-YYYYMMDD-HHMMSS.mkv`
 with a `system` track and a `mic` track. Delete the cable later and the plugin goes
 back to reporting `blocked` with the fix — it does not record half a call silently.
