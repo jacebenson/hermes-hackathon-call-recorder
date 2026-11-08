@@ -215,12 +215,14 @@ def resolved_transcription() -> dict:
     except Exception as exc:  # noqa: BLE001
         _log.warning("call-recorder: transcription detection failed: %s", exc)
         found = {"ok": False, "python": "", "live_script": "", "target": host or "local"}
-    if found.get("python") and not found.get("live_script"):
-        # The machine can transcribe; it just has no scripts yet. Ship ours.
+    if found.get("python"):
+        # Always run the scripts that ship with this plugin, not whatever copy happens
+        # to sit on the machine: a stale archive.py there is invisible otherwise.
         installed = Recorder(host=host or None).install_scripts(_PLUGIN_ROOT / "scripts")
         if installed.get("ok"):
             found = {**found, "ok": True, "live_script": installed["live_script"],
-                     "installed": True}
+                     "installed": True,
+                     "existing_script": found.get("live_script") or ""}
     result = {**found, "mode": "auto" if found.get("ok") else "unavailable"}
     _TRANSCRIPTION_CACHE.update({"at": now, "host": host, "value": result})
     return result
@@ -368,9 +370,13 @@ async def post_transcribe(body: dict) -> dict:
         transc = resolved_transcription()
         script = transc.get("live_script") or ""
         archive = script.replace("live.py", "archive.py") if script.endswith("live.py") else ""
+        env = {"LD_LIBRARY_PATH": transc.get("ld_library_path") or "",
+               "WHISPER_MODEL": transc.get("model") or "",
+               "WHISPER_DEVICE": "cuda", "WHISPER_COMPUTE": "float16"}
         return run_transcription(rec, path, rec.duration(path) or 0,
                                  gpu_python=transc.get("python") or "",
-                                 gpu_script=archive, prefer_gpu=bool(archive))
+                                 gpu_script=archive, gpu_env=env,
+                                 prefer_gpu=bool(archive))
     return await asyncio.to_thread(_run)
 
 

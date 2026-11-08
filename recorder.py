@@ -488,14 +488,15 @@ class Recorder:
 
     # -- scripts ------------------------------------------------------------ #
 
-    def install_scripts(self, local_scripts: Path, dest: str = "~/.local/share/call-recorder") -> dict:
+    def install_scripts(self, local_scripts: Path, dest: str = "") -> dict:
         """Copy live.py and archive.py to the recorded machine.
 
         The plugin ships them, so "where is live.py" never becomes a setting: they are
         written once into a directory the user owns, and reused from then on.
         """
+        dest = dest or f"{self.home_dir()}/.local/share/call-recorder"
         try:
-            self.ok(f"mkdir -p {dest}")
+            self.ok(f"mkdir -p {shlex.quote(dest)}")
         except RuntimeError as exc:
             return {"ok": False, "error": str(exc)}
         for name in ("live.py", "archive.py"):

@@ -56,8 +56,13 @@ def main() -> int:
         counted = 0
         for start in range(0, len(data), step):
             audio = np.asarray(data[start:start + step], dtype=np.float32) / 32768.0
-            segments, _ = model.transcribe(audio, language=LANG, vad_filter=True,
-                                           beam_size=5, condition_on_previous_text=False)
+            try:
+                segments, _ = model.transcribe(audio, language=LANG, vad_filter=True,
+                                               beam_size=5, condition_on_previous_text=False)
+            except Exception as exc:  # noqa: BLE001 - one bad chunk must not lose the rest
+                print(f"{who}: chunk at {offset:.0f}s failed: {exc}", flush=True)
+                offset += len(audio) / 16000
+                continue
             for segment in segments:
                 text = segment.text.strip()
                 if text:

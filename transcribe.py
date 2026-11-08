@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import base64
 import pathlib
+import shlex
 import tempfile
 
 #: Seconds per chunk. The GPU engine picks its own finer timing; this is what keeps
@@ -101,31 +102,51 @@ def transcribe_with_hermes(rec, source: str, duration: float, out_path: pathlib.
         offset += seconds
 
     rows.sort(key=lambda row: row[0])
-    with out_path.open("w") as fh:
-        fh.write(f"# {pathlib.Path(source).name}\n\n"
-                 f"{duration / 60:.1f} minutes, engine hermes, {len(rows)} chunks\n\n")
-        for start, who, text in rows:
-            fh.write(f"**[{int(start // 60):02d}:{int(start % 60):02d}] {who}:** {text}\n\n")
+    # out_path is on the RECORDING machine; build the markdown locally, then ship it.
+    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as local:
+        local_path = pathlib.Path(local.name)
+        fh = local
+        _write_markdown(fh, source, duration, rows)
+    payload = base64.b64encode(local_path.read_bytes()).decode()
+    local_path.unlink(missing_ok=True)
+    rec.run(f"printf %s {shlex.quote(payload)} | base64 -d > {shlex.quote(str(out_path))}")
     return {"ok": True, "engine": ENGINE_HERMES, "path": str(out_path), "segments": len(rows)}
 
 
+def _write_markdown(fh, source: str, duration: float, rows: list[tuple[int, str, str]]) -> None:
+    with_out = fh
+    with_out.write(f"# {pathlib.Path(source).name}\n\n"
+                   f"{duration / 60:.1f} minutes, engine hermes, {len(rows)} chunks\n\n")
+    for start, who, text in rows:
+        with_out.write(f"**[{int(start // 60):02d}:{int(start % 60):02d}] {who}:** {text}\n\n")
+
+
 def transcribe_with_gpu(rec, source: str, out_path: pathlib.Path, python: str,
-                        script: str) -> dict:
-    """The recording machine's own Whisper run (per-line timing, fastest)."""
-    code, out = rec.run(f"{python} {script} {source}", timeout=7200)
+                        script: str, env: dict | None = None) -> dict:
+    """The recording machine's own Whisper run (per-line timing, fastest).
+
+    The environment travels with the command: without WHISPER_MODEL it downloads a
+    model, and without LD_LIBRARY_PATH it cannot reach the GPU at all. A login
+    shell's environment does not come through ssh, so pass it explicitly.
+    """
+    prefix = " ".join(f"{key}={shlex.quote(str(value))}"
+                      for key, value in (env or {}).items() if value)
+    command = f"{prefix + ' ' if prefix else ''}{python} {script} {source}"
+    code, out = rec.run(command, timeout=7200)
     if code != 0:
         return {"ok": False, "engine": ENGINE_GPU, "error": out.strip()[:300]}
-    segments = 0
+    # The transcript lives on the recording machine, so count it there.
+    _code, counted = rec.run(f"grep -c '^\\*\\*\\[' {shlex.quote(str(out_path))} || true")
     try:
-        with out_path.open() as fh:
-            segments = sum(1 for line in fh if line.startswith("**["))
-    except OSError:
-        pass
+        segments = int(counted.strip().splitlines()[0])
+    except (ValueError, IndexError):
+        segments = 0
     return {"ok": True, "engine": ENGINE_GPU, "path": str(out_path), "segments": segments}
 
 
 def transcribe(rec, source: str, duration: float, *, gpu_python: str = "",
-               gpu_script: str = "", prefer_gpu: bool = True) -> dict:
+               gpu_script: str = "", gpu_env: dict | None = None,
+               prefer_gpu: bool = True) -> dict:
     """Run whichever engine is available and return the result dict."""
     source_path = pathlib.Path(source)
     out_path = source_path.with_suffix(".transcript.md")
@@ -137,7 +158,7 @@ def transcribe(rec, source: str, duration: float, *, gpu_python: str = "",
                                       "(no Whisper on the recording machine and Hermes "
                                       "speech-to-text is not configured)"}
     if engine == ENGINE_GPU:
-        result = transcribe_with_gpu(rec, source, out_path, gpu_python, gpu_script)
+        result = transcribe_with_gpu(rec, source, out_path, gpu_python, gpu_script, gpu_env)
         if result.get("ok"):
             return result
         if not hermes:

@@ -23,6 +23,13 @@ class TinyRecorder:
         self.commands.append(command)
         if command.startswith("base64"):
             return 0, base64.b64encode(b"\x00\x01").decode()
+        # The engine ships the finished markdown to the recording machine; emulate that
+        # write locally so the test can read the result back.
+        marker = "base64 -d > "
+        if marker in command:
+            payload = command.split("printf %s ", 1)[1].split(" | ", 1)[0].strip("'")
+            target = command.split(marker, 1)[1].strip().strip("'")
+            pathlib.Path(target).write_bytes(base64.b64decode(payload))
         return 0, ""
 
 
