@@ -116,13 +116,13 @@ function ComposerRecordButton({ ctx }) {
         // First recording ever: say where things go, while it matters.
         let seen = true
         try {
-          seen = Boolean(ctx.storage.get('hintShown'))
+          seen = Boolean(ctx.storage.get('hintShown.v2'))
         } catch {
           seen = false
         }
         if (!seen) {
           try {
-            ctx.storage.set('hintShown', true)
+            ctx.storage.set('hintShown.v2', true)
           } catch {
             /* storage unavailable: still worth saying once per session */
           }
