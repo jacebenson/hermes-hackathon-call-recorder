@@ -132,45 +132,35 @@ route is one-shot, not streaming.
 | --- | --- |
 | Machine being recorded | **Linux with PipeWire.** It needs `pactl`, `ffmpeg` and a `systemd --user` session. |
 | Machine running Hermes | Linux. Remote targets are reached over SSH; local execution assumes a POSIX shell. |
-| Windows as the recorded machine | Partly. Capture works: two DirectShow devices into a two-track mkv over SSH, with ffmpeg, PID-based stop and a remux to finish. It needs a loopback driver (VB-CABLE) to hear the call itself, and without one the plugin reports blocked and names the driver to install. The plugin's Windows runner has not been exercised end to end yet. |
+| Windows as the recorded machine | **Yes, with nothing installed.** WASAPI loopback is part of the OS, so system audio and the microphone are captured with `pip install pyaudiowpatch` and no driver, no admin rights and no certificate prompt. Proven end to end: 25 seconds of a YouTube video and a voice, system at -34 dB and mic at -31 dB. Needs a logged-in desktop session, because Windows exposes no audio without one. |
 | macOS as the recorded machine | Not supported yet. Needs BlackHole and an avfoundation capture path that has not been tested on real hardware. |
 | Transport | SSH only. No HTTP agent, so nothing new listens on the recorded machine and the SSH key is the credential. |
 
-## Windows: install the loopback driver first
+## Windows: nothing to install but a pip package
 
-Windows has no monitor source the way PipeWire does, so the machine cannot hear the
-call until a virtual cable exists. One install, done once per machine:
+Every output endpoint on Windows already has a loopback twin. That is what OBS uses,
+it is part of the OS, and it needs no virtual cable:
 
 ```powershell
-# administrator PowerShell
-choco install vb-cable -y
+python -m pip install pyaudiowpatch
 ```
 
-No Chocolatey? The same driver comes from [vb-audio.com](https://vb-audio.com/Cable/)
-as a zipped installer, and needs a reboot before the device appears.
+That is the whole setup. No driver, no certificate to trust, no reboot.
 
-Then two settings, both required:
+Two things are worth knowing, because both produce silence rather than an error:
 
-1. **Point the call at it.** In the meeting app, set the speaker to `CABLE Input
-   (VB-Audio Virtual Cable)`. The call's audio now flows into the cable.
-2. **Listen to the cable.** Windows sound settings → Recording → `CABLE Output` →
-   Properties → Listen → tick *Listen to this device* → pick your headphones.
+* **Someone has to be logged in.** Windows gives a background service session no audio
+  endpoint at all, so a recorder started over SSH records pure silence even though the
+  file looks perfect. The plugin therefore starts the capture as a scheduled task with an
+  interactive principal, which runs in the logged-in desktop, and refuses to start when
+  nobody is logged in. If you launch it by hand, run it from your own desktop.
+* **Loopback only delivers audio while sound is playing.** The helper writes silence for
+  those gaps so the two tracks stay aligned; without that, every timestamp after the
+  first quiet moment would drift.
 
-Step two is the one people skip: without it the room goes silent, because the call's
-audio is being captured by us instead of played to you. Volume still works normally.
-
-A note from doing this over SSH: the driver files land, but the device only appears
-after a real restart, and the installer's own dialog needs a desktop session. Plan for
-one restart, at the machine, not from a remote shell.
-
-**Use Restart, not Shut down.** Windows ships with fast startup on, which hibernates
-the kernel: shutting down and powering back on restores the old session instead of
-reloading drivers, so the cable stays missing and the uptime counter never moves.
-That looks exactly like "the install did nothing".
-
-Now `Readiness` turns `ready`, and recordings are named `call-YYYYMMDD-HHMMSS.mkv`
-with a `system` track and a `mic` track. Delete the cable later and the plugin goes
-back to reporting `blocked` with the fix — it does not record half a call silently.
+A virtual cable (VB-CABLE, Voicemeeter) still works if you already have one: it shows up
+as an ordinary recording device and the dshow path is used instead. It is no longer
+required, and the plugin never asks anyone to trust a driver.
 
 SSH is the *client* side on the Hermes host, which Windows 10+ ships as `ssh.exe`,
 so driving a Linux desktop from a Windows gateway is mostly a matter of replacing

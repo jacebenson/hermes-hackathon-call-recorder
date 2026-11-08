@@ -106,6 +106,15 @@ def _microphone(devices: list[str], loopback: str | None) -> str | None:
     return None
 
 
+def _wasapi_ready(rec) -> dict:
+    """Windows needs no driver for this: python plus one pip package."""
+    code, _out = rec.run('python -c "import pyaudiowpatch"', timeout=40)
+    if code != 0:
+        return {"ok": False,
+                "fix": "python -m pip install pyaudiowpatch"}
+    return {"ok": True}
+
+
 def readiness(recorder_cls, host: str | None = None) -> dict:
     """Can this machine record right now, and if not, what is missing."""
     os_name = detect_os(recorder_cls, host)
@@ -126,6 +135,12 @@ def readiness(recorder_cls, host: str | None = None) -> dict:
 
     if os_name == WINDOWS:
         win = recorder_cls(host=host, os_name=WINDOWS)
+        # WASAPI loopback first: no driver, no admin, nothing to trust.
+        wasapi = _wasapi_ready(win)
+        if wasapi.get("ok"):
+            return {"state": "ready", "os": os_name, "target": target, "backend": "wasapi",
+                    "device": "default output (WASAPI loopback)",
+                    "detail": "WASAPI loopback plus the default microphone, no driver needed"}
         _code, out = win.run('& ffmpeg -hide_banner -f dshow -list_devices true -i dummy 2>&1 '
                              '| Out-String', timeout=40)
         devices = parse_dshow_devices(out)

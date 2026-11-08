@@ -260,6 +260,9 @@ class Recorder:
 
     def start(self, live: bool = False) -> dict:
         if self.os_name == "windows":
+            import capture_windows_wasapi as wasapi
+            if wasapi.available(self):
+                return wasapi.start(self, live)
             import capture_windows
             return capture_windows.start(self, live)
         state = self.state()
@@ -296,6 +299,9 @@ class Recorder:
 
     def stop(self) -> dict:
         if self.os_name == "windows":
+            import capture_windows_wasapi as wasapi
+            if self.state().get("os") == "windows-wasapi":
+                return wasapi.stop(self)
             import capture_windows
             return capture_windows.stop(self)
         state = self.state()
@@ -340,6 +346,9 @@ class Recorder:
 
     def status(self) -> dict:
         if self.os_name == "windows":
+            import capture_windows_wasapi as wasapi
+            if self.state().get("os") == "windows-wasapi":
+                return wasapi.status(self)
             import capture_windows
             return capture_windows.status(self)
         state = self.state()
