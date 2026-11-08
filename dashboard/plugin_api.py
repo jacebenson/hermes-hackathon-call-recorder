@@ -53,18 +53,61 @@ DEFAULTS = {
     "watch_seconds": 10,           # how often the watcher looks
 }
 
+PLUGIN_ID = "call-recorder"
+
+
+def _as_bool(value, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None or value == "":
+        return default
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _as_int(value, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def manifest_settings() -> dict:
+    """Values the application wrote for this plugin's ``config_schema``.
+
+    They live at ``plugins.entries.call-recorder.settings`` in config.yaml, which is
+    what the Settings → Plugins form writes, so the UI is the source of truth.
+    """
+    home = os.environ.get("HERMES_HOME") or str(Path.home() / ".hermes")
+    try:
+        import yaml
+    except ImportError:
+        return {}
+    try:
+        data = yaml.safe_load((Path(home) / "config.yaml").read_text(encoding="utf-8")) or {}
+    except Exception:  # noqa: BLE001 - a corrupt config must not take the routes down
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    entry = ((data.get("plugins") or {}).get("entries") or {}).get(PLUGIN_ID) or {}
+    values = entry.get("settings") if isinstance(entry, dict) else None
+    return dict(values) if isinstance(values, dict) else {}
+
 
 def settings() -> dict:
-    """settings.json in the plugin dir, overridable per key by CALLREC_* env vars."""
+    """Effective settings: env > Settings → Plugins (config.yaml) > settings.json > defaults."""
     merged = dict(DEFAULTS)
     try:
         merged.update(json.loads(_SETTINGS_FILE.read_text()))
     except (OSError, ValueError):
         pass
+    merged.update({k: v for k, v in manifest_settings().items() if k in DEFAULTS})
     for key in DEFAULTS:
         env = os.environ.get(f"CALLREC_{key.upper()}")
         if env:
             merged[key] = env
+    merged["auto_start"] = _as_bool(merged["auto_start"], DEFAULTS["auto_start"])
+    merged["auto_stop_seconds"] = _as_int(merged["auto_stop_seconds"], DEFAULTS["auto_stop_seconds"])
+    merged["watch_seconds"] = _as_int(merged["watch_seconds"], DEFAULTS["watch_seconds"])
     return merged
 
 

@@ -48,29 +48,24 @@ restart the gateway so the dashboard routes and the desktop half load.
 
 ## Configure
 
-Drop a `settings.json` next to `plugin.yaml` (every key can also come from an
-environment variable named `CALLREC_<KEY>` in upper case):
+Settings live where you would look for them: **Settings → Plugins → Call Recorder**,
+generated from the `config_schema` in `plugin.yaml`. Nothing to hand-edit.
 
-```json
-{
-  "host": "media-pc",
-  "recordings_dir": "~/recordings",
-  "python": "~/whisper/.venv/bin/python",
-  "live_script": "~/whisper/live.py",
-  "auto_start": true,
-  "auto_stop_seconds": 180,
-  "watch_seconds": 10
-}
-```
-
-| key | meaning |
+| field | meaning |
 | --- | --- |
-| `host` | SSH alias of the machine to record (e.g. a desktop you sit at). Empty (`""`) records the gateway host itself. |
-| `recordings_dir` | Where the two-track mkv files land, on the target host. |
-| `python` / `live_script` | Interpreter and live-transcription script, on the target host. Empty disables transcription. |
-| `auto_start` | Start recording when a call is detected. |
-| `auto_stop_seconds` | How long to keep recording after the call disappears. `0` never stops automatically. |
-| `watch_seconds` | Poll interval for the automation thread. |
+| Record this machine | SSH alias of the machine whose audio to record. Empty records the gateway host itself. |
+| Recordings folder | Where the two-track mkv files land, on the recorded machine. |
+| Transcription interpreter | Python on the recorded machine that can import `faster_whisper`. Empty disables transcription; recording still works. |
+| Live transcription script | Path to `live.py` on the recorded machine; `archive.py` must sit beside it. |
+| Start recording automatically | Starts when a call app is both playing audio and capturing the mic. |
+| Stop delay (seconds) | How long to keep recording after the call disappears. `0` never stops automatically. |
+| Check interval (seconds) | How often the recorder looks for a call. |
+
+Resolution order, highest first: `CALLREC_*` environment variables, then the saved
+settings (`plugins.entries.call-recorder.settings` in `config.yaml`), then an optional
+`settings.json` beside `plugin.yaml`, then the schema defaults. So the UI always wins,
+and an environment variable can pin a machine-specific value without editing config.
+
 
 ## How it works
 

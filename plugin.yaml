@@ -1,5 +1,46 @@
 name: call-recorder
-version: "0.1.0"
+version: "0.2.0"
 description: Record both sides of a call (system audio + mic) and transcribe it live
   and after the fact. Ships a composer record button, a status chip and a pane with
   the live transcript and finished recordings.
+config_schema:
+  host:
+    type: str
+    label: Record this machine
+    description: SSH alias of the machine whose audio to record, e.g. the desktop you
+      sit at. Leave empty to record the machine running Hermes.
+    default: ""
+  recordings_dir:
+    type: str
+    label: Recordings folder
+    description: Where the two-track mkv files land, on the recorded machine.
+    default: "~/recordings"
+  python:
+    type: str
+    label: Transcription interpreter
+    description: Python on the recorded machine that can import faster_whisper, e.g.
+      ~/whisper/.venv/bin/python. Empty disables transcription; recording still works.
+    default: ""
+  live_script:
+    type: str
+    label: Live transcription script
+    description: Path to live.py on the recorded machine. archive.py must sit beside it;
+      both ship in this plugin's scripts folder.
+    default: ""
+  auto_start:
+    type: bool
+    label: Start recording automatically
+    description: Begins on its own when a call app is both playing audio and capturing
+      the mic. A browser tab playing a video is not a call.
+    default: true
+  auto_stop_seconds:
+    type: int
+    label: Stop delay (seconds)
+    description: How long to keep recording after the call disappears. 0 never stops
+      automatically; the recording keeps rolling during the countdown.
+    default: 180
+  watch_seconds:
+    type: int
+    label: Check interval (seconds)
+    description: How often the recorder looks for a call.
+    default: 10
