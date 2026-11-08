@@ -19,6 +19,26 @@ const ID = 'call-recorder'
 const clock = (s) =>
   String(Math.floor((s || 0) / 60)).padStart(2, '0') + ':' + String((s || 0) % 60).padStart(2, '0')
 
+// The server reports elapsed once per poll; between polls the number is stale, so
+// derive it from the local clock. Otherwise the timer jumps 2 to 6 seconds at a time.
+const useTicker = (active) => {
+  const [, force] = useState(0)
+  useEffect(() => {
+    if (!active) return undefined
+    const id = setInterval(() => force((n) => n + 1), 1000)
+    return () => clearInterval(id)
+  }, [active])
+}
+
+const elapsedNow = (status) => {
+  const st = (status && status.data) || {}
+  if (!st.recording) return 0
+  const base = Number(st.elapsed) || 0
+  const at = Number(status.dataUpdatedAt) || 0
+  if (!at) return base
+  return base + Math.max(0, Math.floor((Date.now() - at) / 1000))
+}
+
 const mb = (n) => ((n || 0) / 1048576).toFixed(1) + ' MB'
 
 const parseLive = (line) => {
@@ -43,6 +63,15 @@ function ComposerRecordButton({ ctx }) {
   const st = status.data || {}
   const recording = !!st.recording
   const shownRecording = pending === 'start' ? true : pending === 'stop' ? false : recording
+  useTicker(shownRecording && !pending)
+  const elapsed = elapsedNow(status)
+
+  // A request that never answers must not leave the button saying '…' forever.
+  useEffect(() => {
+    if (!pending) return undefined
+    const id = setTimeout(() => setPending(null), 8000)
+    return () => clearTimeout(id)
+  }, [pending])
 
   const toggle = async () => {
     if (pending) return
@@ -64,7 +93,7 @@ function ComposerRecordButton({ ctx }) {
     type: 'button',
     onClick: toggle,
     title: shownRecording
-      ? 'Stop recording (' + clock(st.elapsed) + ')'
+      ? 'Stop recording (' + clock(elapsed) + ')'
       : 'Record this call (system audio + mic)',
     className: cn(
       'inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[0.6875rem] transition-colors',
@@ -80,7 +109,7 @@ function ComposerRecordButton({ ctx }) {
           shownRecording ? 'bg-red-500 animate-pulse' : 'bg-current opacity-50'
         )
       }),
-      pending ? '…' : shownRecording ? clock(st.elapsed) : 'rec'
+      pending ? '…' : shownRecording ? clock(elapsed) : 'rec'
     ]
   })
 }
@@ -88,6 +117,8 @@ function ComposerRecordButton({ ctx }) {
 function RecordChip({ ctx }) {
   const status = useQuery(statusQuery(ctx))
   const st = status.data || {}
+  useTicker(!!st.recording)
+  const elapsed = elapsedNow(status)
   if (!st.recording)
     return jsxs('div', {
       className: 'flex h-full items-center gap-1 px-1.5 text-[0.6875rem] text-(--ui-text-quaternary)',
@@ -95,7 +126,7 @@ function RecordChip({ ctx }) {
     })
   return jsxs('div', {
     className: 'flex h-full items-center gap-1 px-1.5 text-[0.6875rem] text-red-500',
-    children: [jsx(StatusDot, { className: 'text-red-500' }), 'REC ', clock(st.elapsed)]
+    children: [jsx(StatusDot, { className: 'text-red-500' }), 'REC ', clock(elapsed)]
   })
 }
 
