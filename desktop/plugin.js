@@ -91,7 +91,10 @@ function ComposerRecordButton({ ctx }) {
       if (stopping) {
         const res = await ctx.rest('/stop', { method: 'POST', body: {} })
         const file = res && res.file
-        host.notify({ kind: 'info', message: 'call-recorder: stopped' })
+        host.notify({
+          kind: res && res.warning ? 'error' : 'info',
+          message: res && res.warning ? 'call-recorder: ' + res.warning : 'call-recorder: stopped'
+        })
         if (file) {
           host.notify({ kind: 'info', message: 'call-recorder: transcribing…' })
           ctx
@@ -111,7 +114,7 @@ function ComposerRecordButton({ ctx }) {
         await ctx.rest('/start', { method: 'POST', body: { live: true } })
         host.notify({ kind: 'info', message: 'call-recorder: recording' })
       }
-      await qc.invalidateQueries({ queryKey: [ID] })
+      qc.invalidateQueries({ queryKey: [ID] })  // no await: never hold the button
     } catch (e) {
       host.notify({ kind: 'error', message: 'call-recorder: ' + (e && e.message ? e.message : e) })
     } finally {
@@ -150,7 +153,7 @@ function ComposerRecordButton({ ctx }) {
         )
       }),
       // The timer lives in the status bar; here only the state matters.
-      pending ? '…' : shownRecording ? '' : 'rec'
+      shownRecording ? '' : 'rec'
     ]
   })
 }

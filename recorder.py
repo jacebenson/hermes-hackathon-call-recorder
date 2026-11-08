@@ -329,6 +329,11 @@ class Recorder:
             except (ValueError, IndexError):
                 result["bytes"] = 0
             result["duration"] = parse_duration(duration)
+            if not result.get("bytes"):
+                # Matroska writes its first cluster after ~10s; a shorter take saves
+                # nothing, and silently returning an empty file looks like data loss.
+                result["warning"] = ("stopped before anything was written - a recording "
+                                     "needs about ten seconds to save its first audio")
         self.save_state({**state, "unit": None, "stopped": time.time()})
         return result
 
