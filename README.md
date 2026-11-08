@@ -132,7 +132,7 @@ route is one-shot, not streaming.
 | --- | --- |
 | Machine being recorded | **Linux with PipeWire.** It needs `pactl`, `ffmpeg` and a `systemd --user` session. |
 | Machine running Hermes | Linux. Remote targets are reached over SSH; local execution assumes a POSIX shell. |
-| Windows as the recorded machine | Capture verified by hand (two DirectShow devices into a two-track mkv), driver check in place; the supervisor process is not wired yet. Needs a virtual cable. |
+| Windows as the recorded machine | Partly. Capture works: two DirectShow devices into a two-track mkv over SSH, with ffmpeg, PID-based stop and a remux to finish. It needs a loopback driver (VB-CABLE) to hear the call itself, and without one the plugin reports blocked and names the driver to install. The plugin's Windows runner has not been exercised end to end yet. |
 | macOS as the recorded machine | Not supported yet. Needs BlackHole and an avfoundation capture path that has not been tested on real hardware. |
 | Transport | SSH only. No HTTP agent, so nothing new listens on the recorded machine and the SSH key is the credential. |
 
