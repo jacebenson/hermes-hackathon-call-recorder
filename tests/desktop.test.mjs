@@ -21,19 +21,30 @@ const sdk = {
   useQuery: q => ({ data: data[q.queryKey[1]] || {}, dataUpdatedAt: Date.now() }),
   useQueryClient: () => ({ invalidateQueries: v => invalidations.push(v), setQueryData: (key, fn) => { data[key[1]] = fn(data[key[1]]) } })
 }
-const context = vm.createContext({ console, Date, setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1, clearInterval() {} })
-const module = new vm.SourceTextModule(readFileSync(new URL('../desktop/plugin.js', import.meta.url), 'utf8'), { context })
-await module.link(async spec => {
-  const exports = spec === 'react' ? react : spec === 'react/jsx-runtime' ? { jsx, jsxs: jsx } : sdk
-  return new vm.SyntheticModule(Object.keys(exports), function () {
-    for (const [k, v] of Object.entries(exports)) this.setExport(k, v)
-  }, { context })
-})
-await module.evaluate()
+const layoutKey = 'call-recorder.layout.v1'
+const storage = new Map()
+const localStorage = {
+  getItem: key => storage.get(key) ?? null,
+  setItem: (key, value) => storage.set(key, value)
+}
+const context = vm.createContext({ console, Date, localStorage, setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1, clearInterval() {} })
 const contributions = []
 const ctx = { register: c => contributions.push(c), storage: { get: () => true, set() {} },
   rest: async (path, options) => { requests.push({ path, options }); return response } }
-module.namespace.default.register(ctx)
+const reloadPlugin = async () => {
+  values = []
+  contributions.length = 0
+  const module = new vm.SourceTextModule(readFileSync(new URL('../desktop/plugin.js', import.meta.url), 'utf8'), { context })
+  await module.link(async spec => {
+    const exports = spec === 'react' ? react : spec === 'react/jsx-runtime' ? { jsx, jsxs: jsx } : sdk
+    return new vm.SyntheticModule(Object.keys(exports), function () {
+      for (const [k, v] of Object.entries(exports)) this.setExport(k, v)
+    }, { context })
+  })
+  await module.evaluate()
+  module.namespace.default.register(ctx)
+}
+await reloadPlugin()
 const render = id => {
   cursor = 0; effects = []
   const root = contributions.find(c => c.id === id).render()
@@ -46,7 +57,93 @@ const nodes = tree => {
   return [tree, ...[tree.props?.children].flat(Infinity).flatMap(nodes)]
 }
 const button = (tree, label) => nodes(tree).find(n => n.props.children === label)
-const reset = () => { values = []; notes.length = 0; requests.length = 0; invalidations.length = 0 }
+const reset = () => { values = []; storage.clear(); notes.length = 0; requests.length = 0; invalidations.length = 0 }
+const rowButton = (tree, title) => nodes(tree).find(n => n.type === 'button' && nodes(n).some(c => c.props.children === title))
+const liveButton = tree => nodes(tree).find(n => n.props['aria-label'] === 'Toggle live transcript')
+
+// A saved set can restore several rows, without conflating identical paths on machines.
+reset()
+data = { status: {}, recordings: { items: [
+  { file: '/same.mkv', machine: 'alpha', title: 'Alpha' },
+  { file: '/same.mkv', machine: 'beta', title: 'Beta' },
+  { file: '/other.mkv', machine: 'alpha', title: 'Other' }
+] } }
+storage.set(layoutKey, JSON.stringify({ expanded: ['alpha:/same.mkv', 'alpha:/other.mkv'], liveCollapsed: true }))
+let restored = render('call-recorder-pane')
+assert.equal(rowButton(restored, 'Alpha').props['aria-expanded'], true)
+assert.equal(rowButton(restored, 'Beta').props['aria-expanded'], false)
+assert.equal(rowButton(restored, 'Other').props['aria-expanded'], true)
+assert.equal(nodes(restored).filter(n => n.props.children === 'Rename').length, 2)
+assert.equal(liveButton(restored).props['aria-expanded'], false)
+rowButton(restored, 'Beta').props.onClick()
+restored = render('call-recorder-pane')
+assert.deepEqual(JSON.parse(storage.get(layoutKey)), {
+  expanded: ['alpha:/same.mkv', 'alpha:/other.mkv', 'beta:/same.mkv'], liveCollapsed: true
+})
+rowButton(restored, 'Alpha').props.onClick()
+restored = render('call-recorder-pane')
+assert.deepEqual(JSON.parse(storage.get(layoutKey)), {
+  expanded: ['alpha:/other.mkv', 'beta:/same.mkv'], liveCollapsed: true
+})
+liveButton(restored).props.onClick()
+restored = render('call-recorder-pane')
+assert.deepEqual(JSON.parse(storage.get(layoutKey)), {
+  expanded: ['alpha:/other.mkv', 'beta:/same.mkv'], liveCollapsed: false
+})
+await reloadPlugin() // New module as well as new React state, not just a remount.
+restored = render('call-recorder-pane')
+assert.equal(rowButton(restored, 'Alpha').props['aria-expanded'], false)
+assert.equal(rowButton(restored, 'Beta').props['aria-expanded'], true)
+assert.equal(rowButton(restored, 'Other').props['aria-expanded'], true)
+assert.equal(liveButton(restored).props['aria-expanded'], true)
+// Switching capture machine keeps all remembered rows, including absent ones.
+const savedLayout = storage.get(layoutKey)
+nodes(restored).find(n => n.props['aria-label'] === 'Capture machine').props.onClick()
+response = { ok: true, host: '', host_label: 'local' }
+await button(render('call-recorder-pane'), 'This machine').props.onClick()
+restored = render('call-recorder-pane')
+assert.equal(storage.get(layoutKey), savedLayout)
+assert.equal(rowButton(restored, 'Beta').props['aria-expanded'], true)
+const allItems = data.recordings.items
+data.recordings.items = [allItems[2]]
+render('call-recorder-pane')
+assert.equal(storage.get(layoutKey), savedLayout)
+data.recordings.items = allItems
+// Failed deletion preserves disclosure; successful deletion removes only its key.
+const betaContainer = () => nodes(render('call-recorder-pane')).find(n => n.key === 'beta:/same.mkv')
+response = { ok: false, error: 'denied' }
+button(betaContainer(), 'delete').props.onClick()
+await button(betaContainer(), 'confirm').props.onClick()
+render('call-recorder-pane')
+assert.equal(storage.get(layoutKey), savedLayout)
+response = { ok: true }
+button(betaContainer(), 'delete').props.onClick()
+await button(betaContainer(), 'confirm').props.onClick()
+render('call-recorder-pane')
+assert.deepEqual(JSON.parse(storage.get(layoutKey)), { expanded: ['alpha:/other.mkv'], liveCollapsed: false })
+await reloadPlugin()
+assert.equal(rowButton(render('call-recorder-pane'), 'Other').props['aria-expanded'], true)
+// Missing, corrupt and obsolete shapes fail closed rather than breaking render.
+for (const saved of [null, '{broken', 'null', '[]', '{"open":"alpha:/other.mkv"}',
+  '{"expanded":[42],"liveCollapsed":false}', '{"expanded":[],"liveCollapsed":"false"}']) {
+  reset()
+  if (saved !== null) storage.set(layoutKey, saved)
+  await reloadPlugin()
+  const fallback = render('call-recorder-pane')
+  assert.equal(liveButton(fallback).props['aria-expanded'], false)
+  assert(!nodes(fallback).some(n => n.props.children === 'Rename'))
+}
+reset()
+const getItem = localStorage.getItem, setItem = localStorage.setItem
+localStorage.getItem = () => { throw new Error('storage denied') }
+localStorage.setItem = () => { throw new Error('quota exceeded') }
+await reloadPlugin()
+restored = render('call-recorder-pane')
+assert.equal(liveButton(restored).props['aria-expanded'], false)
+rowButton(restored, 'Other').props.onClick()
+assert.equal(rowButton(render('call-recorder-pane'), 'Other').props['aria-expanded'], true)
+localStorage.getItem = getItem
+localStorage.setItem = setItem
 
 reset(); data = { status: { recording: true } }; response = { ok: false, error: 'stop denied', file: 'x' }
 await render('call-recorder-composer').props.onClick()
@@ -79,6 +176,7 @@ await input.props.onKeyDown({ key: 'Enter', preventDefault() {} })
 assert.equal(requests[0].path, '/title')
 assert.equal(requests[0].options.body.title, 'Saved name')
 reset(); data = { status: { recording: true, live: true }, live: { lines: ['[12:00:00] you> current words'] }, recordings: { items: [] } }
+storage.set(layoutKey, JSON.stringify({ expanded: [], liveCollapsed: false }))
 tree = render('call-recorder-pane')
 let disclosure = nodes(tree).find(n => n.props['aria-label'] === 'Toggle live transcript')
 assert.equal(disclosure.props['aria-expanded'], true)

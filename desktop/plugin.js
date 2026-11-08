@@ -16,6 +16,20 @@ const { Badge, Button, Input, StatusDot, Switch, cn, host, useQuery, useQueryCli
 
 const ID = 'call-recorder'
 const recordingKey = (row) => (row.machine || '') + ':' + row.file
+const LAYOUT_KEY = 'call-recorder.layout.v1'
+const readLayout = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY))
+    if (saved && Array.isArray(saved.expanded) &&
+        saved.expanded.every((key) => typeof key === 'string') &&
+        typeof saved.liveCollapsed === 'boolean') {
+      return { expanded: [...new Set(saved.expanded)], liveCollapsed: saved.liveCollapsed }
+    }
+  } catch {
+    // Old, corrupt or unavailable storage must not prevent opening the pane.
+  }
+  return { expanded: [], liveCollapsed: true }
+}
 
 const clock = (s) =>
   String(Math.floor((s || 0) / 60)).padStart(2, '0') + ':' + String((s || 0) % 60).padStart(2, '0')
@@ -268,8 +282,8 @@ function TranscriptView({ ctx, path, machine }) {
   })
 }
 
-// Module memory lasts for this desktop session, including pane remounts.
-const liveCollapsed = { pane: false, strip: false }
+// The composer strip keeps its independent disclosure for this desktop session.
+const liveCollapsed = { strip: false }
 const useLiveDisclosure = (surface) => {
   const [collapsed, setCollapsed] = useState(() => liveCollapsed[surface])
   const toggle = () => setCollapsed((old) => { liveCollapsed[surface] = !old; return !old })
@@ -282,14 +296,26 @@ const liveSummary = (lines, on) => lines.length
 function RecorderPane({ ctx }) {
   const qc = useQueryClient()
   const [busy, setBusy] = useState(false)
-  const [open, setOpen] = useState('')
+  const [layout, setLayout] = useState(readLayout)
+  useEffect(() => {
+    try {
+      localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout))
+    } catch {
+      // Storage may be disabled or full; disclosures still work in memory.
+    }
+  }, [layout])
   const [confirmDelete, setConfirmDelete] = useState('')
   const [editingTitle, setEditingTitle] = useState('')
   const [titleDraft, setTitleDraft] = useState('')
   const [diagnosis, setDiagnosis] = useState(null)
   const [hostMenu, setHostMenu] = useState(false)
   const [hostDraft, setHostDraft] = useState('')
-  const [collapsed, toggleLive] = useLiveDisclosure('pane')
+  const collapsed = layout.liveCollapsed
+  const toggleLive = () => setLayout((old) => ({ ...old, liveCollapsed: !old.liveCollapsed }))
+  const toggleRow = (key) => setLayout((old) => ({
+    ...old, expanded: old.expanded.includes(key)
+      ? old.expanded.filter((item) => item !== key) : [...old.expanded, key]
+  }))
   const tailRef = useRef(null)
 
   const status = useQuery(statusQuery(ctx))
@@ -340,7 +366,7 @@ function RecorderPane({ ctx }) {
         if (path === '/delete') {
           qc.setQueryData([ID, 'recordings'], (old) => old
             ? { ...old, items: (old.items || []).filter((r) => recordingKey(r) !== recordingKey(body)) } : old)
-          setOpen('')
+          setLayout((old) => ({ ...old, expanded: old.expanded.filter((key) => key !== recordingKey(body)) }))
         }
         if (path === '/title') {
           qc.setQueryData([ID, 'recordings'], (old) => old
@@ -354,7 +380,6 @@ function RecorderPane({ ctx }) {
           setHostMenu(false)
           setHostDraft('')
           setDiagnosis(null)
-          setOpen('')
         }
         if (path === '/stop') notifyTranscription(res.transcription)
         if (path === '/transcribe') {
@@ -635,7 +660,8 @@ function RecorderPane({ ctx }) {
                   children: [
                     jsxs('button', {
                       type: 'button',
-                      onClick: () => setOpen(open === recordingKey(r) ? '' : recordingKey(r)),
+                      'aria-expanded': layout.expanded.includes(recordingKey(r)),
+                      onClick: () => toggleRow(recordingKey(r)),
                       className:
                         'flex w-full items-center justify-between gap-2 px-2 py-1 text-left text-[0.6875rem] hover:bg-(--chrome-action-hover)',
                       children: [
@@ -664,7 +690,7 @@ function RecorderPane({ ctx }) {
                       className: 'px-2 py-1 text-[0.6875rem] text-red-500',
                       children: r.upload_error
                     }) : null,
-                    open === recordingKey(r)
+                    layout.expanded.includes(recordingKey(r))
                       ? jsxs('div', {
                           className: 'border-t border-(--ui-stroke-secondary)',
                           children: [
