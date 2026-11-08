@@ -287,6 +287,8 @@ function RecorderPane({ ctx }) {
   const [editingTitle, setEditingTitle] = useState('')
   const [titleDraft, setTitleDraft] = useState('')
   const [diagnosis, setDiagnosis] = useState(null)
+  const [hostMenu, setHostMenu] = useState(false)
+  const [hostDraft, setHostDraft] = useState('')
   const [collapsed, toggleLive] = useLiveDisclosure('pane')
   const tailRef = useRef(null)
 
@@ -297,6 +299,13 @@ function RecorderPane({ ctx }) {
     staleTime: 60000,
     retry: false
   })
+  const captureHost = useQuery({
+    queryKey: [ID, 'capture-host'],
+    queryFn: () => ctx.rest('/capture-host'),
+    staleTime: 0,
+    retry: false
+  })
+  const selectedHost = captureHost.data || {}
   const st = status.data || {}
   const cfg = config.data || {}
   useTranscriptionNotices(st, qc)
@@ -336,6 +345,13 @@ function RecorderPane({ ctx }) {
         if (path === '/title') {
           qc.setQueryData([ID, 'recordings'], (old) => old
             ? { ...old, items: (old.items || []).map((r) => recordingKey(r) === recordingKey(body) ? { ...r, title: res.title } : r) } : old)
+        }
+        if (path === '/capture-host') {
+          qc.setQueryData([ID, 'capture-host'], () => res)
+          setHostMenu(false)
+          setHostDraft('')
+          setDiagnosis(null)
+          setOpen('')
         }
         if (path === '/stop') notifyTranscription(res.transcription)
         if (path === '/transcribe') {
@@ -400,7 +416,7 @@ function RecorderPane({ ctx }) {
           }),
           jsx('span', {
             className: 'text-[0.6875rem] text-(--ui-text-quaternary)',
-            children: recording ? mb(st.bytes) : cfg.host_label || st.host || cfg.host || ''
+            children: recording ? mb(st.bytes) : ''
           })
         ]
       }),
@@ -451,12 +467,59 @@ function RecorderPane({ ctx }) {
             onClick: () => call('/stop'),
             children: 'Stop'
           }),
+          jsx(Button, {
+            size: 'sm', variant: 'secondary',
+            'aria-label': 'Capture machine',
+            'aria-expanded': hostMenu,
+            title: recording ? 'Stop recording before switching machines' : 'Switch capture machine',
+            disabled: busy || recording,
+            className: 'min-w-0 max-w-40 truncate',
+            onClick: () => setHostMenu(!hostMenu),
+            children: selectedHost.host_label || cfg.host_label || cfg.host || 'Capture machine…'
+          }),
           jsx('span', {
             className: 'ml-auto truncate text-[0.6875rem] text-(--ui-text-quaternary)',
             children: st.mic || (liveOn ? 'live on' : 'live off')
           })
         ]
       }),
+      hostMenu ? jsxs('div', {
+        role: 'group', 'aria-label': 'Choose capture machine',
+        className: 'flex flex-col gap-1 rounded border border-(--ui-stroke-secondary) p-2',
+        onKeyDown: (e) => { if (e.key === 'Escape') setHostMenu(false) },
+        children: [
+          jsx(Button, {
+            size: 'sm', variant: 'ghost', disabled: busy || recording,
+            title: 'Record on the machine running the Hermes backend',
+            onClick: () => call('/capture-host', { host: '' }),
+            children: 'This machine'
+          }),
+          ...(selectedHost.recent_hosts || []).map((machine) => jsx(Button, {
+            size: 'sm', variant: 'ghost', disabled: busy || recording,
+            onClick: () => call('/capture-host', { host: machine }),
+            children: machine
+          }, machine)),
+          jsxs('form', {
+            className: 'flex items-center gap-1',
+            onSubmit: (e) => {
+              e.preventDefault()
+              if (!busy && !recording && hostDraft.trim()) return call('/capture-host', { host: hostDraft })
+            },
+            children: [
+              jsx(Input, {
+                autoFocus: true, 'aria-label': 'New capture machine',
+                placeholder: 'Hostname or SSH alias', maxLength: 253,
+                value: hostDraft, disabled: busy || recording,
+                onChange: (e) => setHostDraft(e.target.value)
+              }),
+              jsx(Button, {
+                type: 'submit', size: 'sm', disabled: busy || recording || !hostDraft.trim(),
+                children: 'Use'
+              })
+            ]
+          })
+        ]
+      }) : null,
       cfg.readiness && cfg.readiness.state && cfg.readiness.state !== 'ready'
         ? jsxs('div', {
             className:

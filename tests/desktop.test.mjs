@@ -229,4 +229,45 @@ button(tree, 'delete').props.onClick()
 response = { ok: true }
 await button(render('call-recorder-pane'), 'confirm').props.onClick()
 assert.deepEqual(data.recordings.items.map(r => r.machine), ['backend'])
+// Capture machine selection lives beside Start/Stop, never behind Settings.
+reset()
+data = { status: {}, 'capture-host': { host: 'framework', host_label: 'framework', recent_hosts: ['framework', 'audio-laptop'] } }
+tree = render('call-recorder-pane')
+let picker = nodes(tree).find(n => n.props['aria-label'] === 'Capture machine')
+assert(picker, 'capture machine control exists')
+assert.equal(picker.props.children, 'framework')
+assert(nodes(tree).some(n => [n.props.children].flat().some(c => c?.props?.children === 'Start') &&
+  [n.props.children].flat().some(c => c?.props?.['aria-label'] === 'Capture machine')), 'picker shares the Start/Stop line')
+picker.props.onClick()
+tree = render('call-recorder-pane')
+assert(button(tree, 'This machine'))
+response = { ok: true, host: 'audio-laptop', host_label: 'audio-laptop', recent_hosts: ['audio-laptop', 'framework'] }
+await button(tree, 'audio-laptop').props.onClick()
+assert.equal(requests[0].path, '/capture-host')
+assert.equal(requests[0].options.method, 'POST')
+assert.equal(requests[0].options.body.host, 'audio-laptop')
+assert.equal(nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'Capture machine').props.children, 'audio-laptop')
+assert(invalidations.some(v => v.queryKey[0] === 'call-recorder'))
+nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'Capture machine').props.onClick()
+response = { ok: true, host: '', host_label: 'local (hermes-host)', recent_hosts: ['audio-laptop', 'framework'] }
+await button(render('call-recorder-pane'), 'This machine').props.onClick()
+assert.equal(requests.at(-1).options.body.host, '')
+assert.equal(nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'Capture machine').props.children, 'local (hermes-host)')
+nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'Capture machine').props.onClick()
+let hostInput = nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'New capture machine')
+hostInput.props.onChange({ target: { value: 'new-host' } })
+response = { ok: false, error: 'disk full' }
+invalidations.length = 0
+await nodes(render('call-recorder-pane')).find(n => n.type === 'form').props.onSubmit({ preventDefault() {} })
+assert.equal(requests.at(-1).options.body.host, 'new-host')
+assert.equal(nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'Capture machine').props.children, 'local (hermes-host)')
+assert(notes.some(n => n.kind === 'error' && n.message.includes('disk full')))
+assert.equal(invalidations.length, 0)
+assert(nodes(render('call-recorder-pane')).some(n => n.props['aria-label'] === 'New capture machine'))
+response = { ok: true, host: 'new-host', host_label: 'new-host', recent_hosts: ['new-host', 'audio-laptop', 'framework'] }
+await nodes(render('call-recorder-pane')).find(n => n.type === 'form').props.onSubmit({ preventDefault() {} })
+assert.equal(nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'Capture machine').props.children, 'new-host')
+assert(!nodes(render('call-recorder-pane')).some(n => n.props['aria-label'] === 'New capture machine'))
+data.status.recording = true
+assert.equal(nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'Capture machine').props.disabled, true)
 console.log('Desktop behavior checks passed.')

@@ -23,7 +23,10 @@ import json
 import logging
 import os
 import platform
+import re
 import socket
+import tempfile
+import unicodedata
 import threading
 import time
 from pathlib import Path
@@ -110,13 +113,25 @@ def manifest_settings() -> dict:
 
 
 def settings() -> dict:
-    """Effective settings: env > Settings → Plugins (config.yaml) > settings.json > defaults."""
+    """Env > pane host choice > Settings page > settings.json > defaults.
+
+    The pane choice applies only while the page's host value is unchanged.
+    """
     merged = dict(DEFAULTS)
+    saved = {}
     try:
-        merged.update(json.loads(_SETTINGS_FILE.read_text()))
+        saved = json.loads(_SETTINGS_FILE.read_text())
+        if not isinstance(saved, dict):
+            saved = {}
+        merged.update(saved)
     except (OSError, ValueError):
         pass
-    merged.update({k: v for k, v in manifest_settings().items() if k in DEFAULTS})
+    manifest = manifest_settings()
+    merged.update({k: v for k, v in manifest.items() if k in DEFAULTS})
+    # A pane choice wins over the page value it replaced, but a later explicit
+    # change in Settings wins again. Keep all other settings' precedence intact.
+    if "_capture_host_manifest" in saved and saved["_capture_host_manifest"] == manifest.get("host"):
+        merged["host"] = saved.get("host", "")
     for key in DEFAULTS:
         env = os.environ.get(f"CALLREC_{key.upper()}")
         if env:
@@ -393,6 +408,102 @@ def _config_payload() -> dict:
         "reachable": code == 0,
         "detail": out.strip()[:200],
     }
+
+
+RECENT_HOST_LIMIT = 5
+_SETTINGS_LOCK = threading.Lock()
+
+
+def validate_capture_host(value) -> str:
+    if not isinstance(value, str):
+        raise ValueError("host must be a string; use an empty string for this machine")
+    if any(unicodedata.category(c).startswith("C") for c in value):
+        raise ValueError("host must not contain control characters")
+    value = value.strip()
+    if not value or value.lower() == "local":
+        return ""
+    if len(value) > 253 or not all(
+        re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", label)
+        for label in value.split(".")
+    ):
+        raise ValueError("host must be a hostname or SSH machine alias, or local")
+    return value
+
+
+def _recent_hosts(saved: dict, *hosts) -> list[str]:
+    recent = saved.get("recent_hosts", [])
+    result = []
+    for value in [*hosts, *(recent if isinstance(recent, list) else [])]:
+        try:
+            host = validate_capture_host(value)
+        except ValueError:
+            continue
+        if host and host.lower() not in [h.lower() for h in result]:
+            result.append(host)
+    return result[:RECENT_HOST_LIMIT]
+
+
+def _capture_host_payload(saved: dict | None = None) -> dict:
+    if saved is None:
+        try:
+            saved = json.loads(_SETTINGS_FILE.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            saved = {}
+    if not isinstance(saved, dict):
+        saved = {}
+    host = settings()["host"]
+    return {"ok": True, "host": host,
+            "host_label": host or f"local ({socket.gethostname()})",
+            "recent_hosts": _recent_hosts(saved, host)}
+
+
+@router.get("/capture-host")
+async def get_capture_host() -> dict:
+    return await asyncio.to_thread(_capture_host_payload)
+
+
+@router.post("/capture-host")
+async def post_capture_host(body: dict) -> dict:
+    try:
+        host = validate_capture_host(body.get("host"))
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    def _save():
+        with _SETTINGS_LOCK:
+            if os.environ.get("CALLREC_HOST"):
+                return {"ok": False, "error": "Capture machine is pinned by CALLREC_HOST. Remove it before switching machines."}
+            temporary = None
+            try:
+                try:
+                    saved = json.loads(_SETTINGS_FILE.read_text(encoding="utf-8"))
+                except FileNotFoundError:
+                    saved = {}
+                if not isinstance(saved, dict):
+                    raise ValueError("settings.json must contain an object")
+                previous = settings()["host"]
+                saved.update(host=host, recent_hosts=_recent_hosts(saved, host, previous),
+                             _capture_host_manifest=manifest_settings().get("host"))
+                # Replace one file containing both selection and history, never
+                # truncate the previous settings when a write fails midway.
+                with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8",
+                                                 dir=_SETTINGS_FILE.parent,
+                                                 prefix=".capture-host-", delete=False) as stream:
+                    temporary = Path(stream.name)
+                    json.dump(saved, stream, indent=2)
+                    stream.write("\n")
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, _SETTINGS_FILE)
+            except (OSError, ValueError) as exc:
+                return {"ok": False, "error": f"Could not save capture machine: {exc}"}
+            finally:
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
+            _READINESS_CACHE.update(at=0.0, host=None, value=None)
+            _TRANSCRIPTION_CACHE.update(at=0.0, host=None, value=None)
+            return _capture_host_payload()
+    return await asyncio.to_thread(_save)
 
 
 @router.get("/config")

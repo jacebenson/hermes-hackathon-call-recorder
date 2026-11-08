@@ -72,6 +72,20 @@ machine's SSH host. A configured remote host keeps the name you entered.
 To record somewhere else, name that machine and make sure Hermes can `ssh` to it
 without a password. There is no host discovery.
 
+The machine control beside Start/Stop switches capture without opening Settings.
+Choose one of the five most recently used machines, enter a new hostname or SSH
+alias, or choose `This machine` to clear `host`. Stop recording before switching.
+A failed save shows an error and keeps the previous selection. Settings still
+holds the recording folder, transcription and auto-stop options.
+
+`GET /capture-host` reads the current choice and recent machines;
+`POST /capture-host` accepts `{"host": "framework"}`, with `""` or `"local"` for
+local capture. Names are trimmed and must be plausible hostnames without control
+characters. Selection and recent machines are saved atomically in `settings.json`
+beside `plugin.yaml`. The pane choice overrides the current Settings host value;
+a later different host value in Settings takes precedence again. `CALLREC_HOST`
+remains an override and prevents pane writes until removed.
+
 For example, Hermes running on a server called `hermes-host`, with the microphone on a
 laptop called `laptop`, means `host` is `laptop`, and `hermes-host` needs a working SSH
 key to `laptop`. From a shell on the machine running Hermes, run:
