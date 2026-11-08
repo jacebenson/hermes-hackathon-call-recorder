@@ -33,9 +33,10 @@ LOOPBACK_HINTS = {**{k: v + LOOPBACK_WEAK.get(k, ()) for k, v in LOOPBACK_STRONG
                   **{k: v for k, v in LOOPBACK_WEAK.items() if k not in LOOPBACK_STRONG}}
 
 FIXES = {
-    WINDOWS: ("Install a loopback driver: 'choco install vb-cable -y' in an administrator "
-              "PowerShell (or the installer from vb-audio.com), then set the call's speaker to "
-              "'CABLE Input' and turn on Listen on 'CABLE Output' so you can still hear it."),
+    WINDOWS: ("Run 'python -m pip install pyaudiowpatch' on the machine being recorded. "
+              "Windows already has WASAPI loopback for every output device, so no virtual "
+              "cable, driver or admin rights are needed - and someone has to be logged in, "
+              "because a background session has no audio to capture."),
     MACOS: ("Install BlackHole 2ch and set the call's output to 'BlackHole 2ch'."),
 }
 
@@ -149,7 +150,7 @@ def readiness(recorder_cls, host: str | None = None) -> dict:
         if loopback and mic and is_weak_loopback(os_name, loopback):
             return {"state": "blocked", "os": os_name, "target": target, "backend": "dshow",
                     "device": loopback, "microphone": mic, "devices": devices,
-                    "detail": f"only {loopback} was found, which works only while Steam runs",
+                    "detail": f"only {loopback} was found, which works only while Steam runs; WASAPI capture needs pyaudiowpatch",
                     "fix": FIXES[WINDOWS]}
         if loopback and mic:
             return {"state": "ready", "os": os_name, "target": target, "backend": "dshow",
@@ -158,7 +159,7 @@ def readiness(recorder_cls, host: str | None = None) -> dict:
         if not loopback:
             return {"state": "blocked", "os": os_name, "target": target, "backend": "dshow",
                     "devices": devices, "fix": FIXES[WINDOWS],
-                    "detail": "no virtual audio cable found, so system audio cannot be captured"}
+                    "detail": "no loopback device and no WASAPI capture available"}
         return {"state": "blocked", "os": os_name, "target": target, "backend": "dshow",
                 "devices": devices, "fix": "Plug in a microphone (the cable is not a mic).",
                 "detail": "a cable was found but no real microphone"}
