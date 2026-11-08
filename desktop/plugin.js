@@ -241,7 +241,9 @@ function RecorderPane({ ctx }) {
     retry: false
   })
 
-  const lines = (live.data && live.data.lines) || []
+  const lines = ((live.data && live.data.lines) || []).filter(
+    (line) => !String(line).trim().startsWith('===')
+  )
   useEffect(() => {
     if (tailRef.current) tailRef.current.scrollTop = tailRef.current.scrollHeight
   }, [lines.length])
@@ -445,7 +447,9 @@ function LiveStrip({ ctx }) {
     retry: false
   })
   if (!on) return null
-  const lines = ((live.data && live.data.lines) || []).slice(-3)
+  const lines = ((live.data && live.data.lines) || [])
+    .filter((line) => !String(line).trim().startsWith('==='))
+    .slice(-3)
   return jsx('div', {
     className: cn(
       'mx-auto mb-1 w-full max-w-3xl rounded-md border-l-2 border-red-500/70',
