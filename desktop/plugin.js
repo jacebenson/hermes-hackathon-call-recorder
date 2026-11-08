@@ -66,6 +66,16 @@ function ComposerRecordButton({ ctx }) {
   useTicker(shownRecording && !pending)
   const elapsed = elapsedNow(status)
 
+  // A muted microphone looks exactly like a working one. Track how long the level
+  // has been at digital silence and say so.
+  const silentSince = useRef(null)
+  const db = typeof st.mic_db === 'number' ? st.mic_db : null
+  if (!shownRecording) silentSince.current = null
+  else if (db !== null && db > -55) silentSince.current = null
+  else if (db !== null && silentSince.current === null) silentSince.current = Date.now()
+  const silentFor = silentSince.current ? Math.floor((Date.now() - silentSince.current) / 1000) : 0
+  const micSilent = shownRecording && silentFor >= 30
+
   // A request that never answers must not leave the button saying '…' forever.
   useEffect(() => {
     if (!pending) return undefined
@@ -78,10 +88,30 @@ function ComposerRecordButton({ ctx }) {
     const stopping = recording
     setPending(stopping ? 'stop' : 'start')
     try {
-      if (stopping) await ctx.rest('/stop', { method: 'POST', body: {} })
-      else await ctx.rest('/start', { method: 'POST', body: { live: true } })
+      if (stopping) {
+        const res = await ctx.rest('/stop', { method: 'POST', body: {} })
+        const file = res && res.file
+        host.notify({ kind: 'info', message: 'call-recorder: stopped' })
+        if (file) {
+          host.notify({ kind: 'info', message: 'call-recorder: transcribing…' })
+          ctx
+            .rest('/transcribe', { method: 'POST', body: { file }, timeoutMs: 3600000 })
+            .then(() => {
+              host.notify({ kind: 'info', message: 'call-recorder: transcript ready' })
+              qc.invalidateQueries({ queryKey: [ID] })
+            })
+            .catch(() =>
+              host.notify({
+                kind: 'error',
+                message: 'call-recorder: recording saved, transcription failed'
+              })
+            )
+        }
+      } else {
+        await ctx.rest('/start', { method: 'POST', body: { live: true } })
+        host.notify({ kind: 'info', message: 'call-recorder: recording' })
+      }
       await qc.invalidateQueries({ queryKey: [ID] })
-      host.notify({ kind: 'info', message: stopping ? 'call-recorder: stopped' : 'call-recorder: recording' })
     } catch (e) {
       host.notify({ kind: 'error', message: 'call-recorder: ' + (e && e.message ? e.message : e) })
     } finally {
@@ -92,13 +122,17 @@ function ComposerRecordButton({ ctx }) {
   return jsxs('button', {
     type: 'button',
     onClick: toggle,
-    title: shownRecording
-      ? 'Stop recording (' + clock(elapsed) + ')'
-      : 'Record this call (system audio + mic)',
+    title: !shownRecording
+      ? 'Record this call (system audio + mic)'
+      : micSilent
+        ? 'Microphone is silent (' + silentFor + 's) - are you muted? Click to stop.'
+        : 'Stop recording (' + clock(elapsed) + ')',
     className: cn(
       'inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[0.6875rem] transition-colors',
       shownRecording
-        ? 'bg-red-500/10 text-red-500'
+        ? micSilent
+          ? 'bg-amber-500/10 text-amber-500'
+          : 'bg-red-500/10 text-red-500'
         : 'text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground',
       pending ? 'opacity-70' : ''
     ),
@@ -106,7 +140,11 @@ function ComposerRecordButton({ ctx }) {
       jsx('span', {
         className: cn(
           'block h-2 w-2 rounded-full',
-          shownRecording ? 'bg-red-500 animate-pulse' : 'bg-current opacity-50'
+          micSilent
+            ? 'bg-amber-500'
+            : shownRecording
+              ? 'bg-red-500 animate-pulse'
+              : 'bg-current opacity-50'
         )
       }),
       pending ? '…' : shownRecording ? clock(elapsed) : 'rec'
@@ -255,9 +293,15 @@ function RecorderPane({ ctx }) {
       jsx('div', {
         className: cn(
           'text-[0.6875rem] leading-snug',
-          cfg.transcription ? 'text-(--ui-text-quaternary)' : 'text-amber-500'
+          recording && st.live
+            ? 'text-red-500'
+            : cfg.transcription
+              ? 'text-(--ui-text-quaternary)'
+              : 'text-amber-500'
         ),
-        children: cfg.transcription
+        children: recording && st.live
+          ? 'live transcription: on'
+          : cfg.transcription
           ? 'whisper: ' +
             (cfg.transcription_mode === 'auto' ? 'found ' : '') +
             (cfg.transcription_detail || 'available')

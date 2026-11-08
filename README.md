@@ -75,6 +75,22 @@ Advanced keys (`python`, `live_script`, `auto_start`, `auto_stop_seconds`,
 variables or a `settings.json` beside `plugin.yaml`, but they are deliberately not on
 the page.
 
+## While recording
+
+The composer button is the whole interface:
+
+- idle shows `rec`;
+- recording shows a red dot and a timer that ticks every second;
+- if the microphone has been at digital silence for thirty seconds the dot turns
+  **amber** and the tooltip says the mic is silent — a muted call and a working one
+  look identical otherwise;
+- stopping shows `transcribing…` and then `transcript ready`, with the recording
+  waiting in the pane.
+
+Live transcription runs during the call when the recording machine has a Whisper
+runtime; the pane says `live transcription: on` while it does. Without a runtime
+there is no live view — the upload route Hermes exposes is one-shot, not streaming.
+
 ## Transcription
 
 One path, two engines, no configuration. The recording is cut into two-minute

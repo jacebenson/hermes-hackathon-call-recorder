@@ -136,6 +136,28 @@ class Recorder:
         self.auto_stop_seconds = int(auto_stop_seconds)
         #: "linux" or "windows": which shell the commands below are written for.
         self.os_name = (os_name or "linux").lower()
+        #: CUDA library path for the live transcriber (detected, not configured).
+        self.ld_library_path = ""
+
+    def home_dir(self) -> str:
+        """The target's $HOME, asked once."""
+        cached = getattr(self, "_home_dir", None)
+        if cached:
+            return cached
+        value = self.ok("echo $HOME").strip() or "~"
+        self._home_dir = value
+        return value
+
+    def rec_dir(self) -> str:
+        """recordings_dir with `~` expanded on the *target*.
+
+        systemd-run does not expand `~`, so passing it literally created a directory
+        actually named `~` next to the home directory.
+        """
+        directory = self.recordings_dir or "~/recordings"
+        if directory.startswith("~"):
+            return self.home_dir() + directory[1:]
+        return directory
 
     # -- shell plumbing ----------------------------------------------------- #
 
@@ -246,8 +268,8 @@ class Recorder:
         src = self.sources()
         stamp = time.strftime("%Y%m%d-%H%M%S")
         unit = f"{UNIT_PREFIX}{stamp}"
-        out = f"{self.recordings_dir}/call-{stamp}.mkv"
-        self.ok(f"mkdir -p {shlex.quote(self.recordings_dir)}")
+        out = f"{self.rec_dir()}/call-{stamp}.mkv"
+        self.ok(f"mkdir -p {shlex.quote(self.rec_dir())}")
 
         command = " ".join([
             "systemd-run --user", f"--unit={shlex.quote(unit)}", "--collect",
@@ -263,7 +285,7 @@ class Recorder:
                  "monitor": src["monitor"], "mic": src["mic"], "live": bool(live)}
         self.save_state(state)
         if live:
-            self.start_live()
+            self.start_live(model=self.whisper_model, ld_library_path=self.ld_library_path)
         # Answer from what we already know: another status() here is only extra latency.
         return {"ok": True, "recording": True, "live": bool(live) and self.live_available(),
                 "host": self.host or "local", "unit": unit, "file": out, "bytes": 0,
@@ -334,7 +356,35 @@ class Recorder:
             "auto_start": self.auto_start,
             "auto_stop_seconds": grace,
             "pending_stop": pending,
+            "mic_db": self.mic_level() if recording else None,
         }
+
+    # -- levels -------------------------------------------------------------- #
+
+    def mic_level(self, fresh: bool = False) -> float | None:
+        """Current microphone level in dB, sampled for a second at most every 10s.
+
+        A recording can be running perfectly while the microphone is muted, which is
+        indistinguishable from working unless something actually listens.
+        """
+        now = time.time()
+        cached = getattr(self, "_mic_level", None)
+        if cached and not fresh and now - cached[1] < 10:
+            return cached[0]
+        device = self.state().get("mic") or "easyeffects_source"
+        if self.os_name == "windows":
+            command = (f'& ffmpeg -hide_banner -nostdin -f dshow -i audio="{device}" '
+                       "-t 0.7 -af volumedetect -f null - 2>&1 | Out-String")
+        else:
+            command = (f"ffmpeg -hide_banner -nostdin -f pulse -i {shlex.quote(device)} "
+                       "-t 0.7 -af volumedetect -f null - 2>&1")
+        code, out = self.run(command, timeout=15)
+        level = None
+        match = re.search(r"mean_volume:\s*(-?\d+(?:\.\d+)?) dB", out)
+        if match:
+            level = float(match.group(1))
+        self._mic_level = (level, now)
+        return level
 
     # -- automation ---------------------------------------------------------- #
 
@@ -390,11 +440,17 @@ class Recorder:
     def live_available(self) -> bool:
         return bool(self.python and self.live_script)
 
-    def start_live(self) -> dict:
+    def start_live(self, model: str = "", ld_library_path: str = "") -> dict:
         if not self.live_available():
             return {"ok": False, "error": "live transcription is not configured"}
+        env = ""
+        chosen_model = model or self.whisper_model
+        if chosen_model:
+            env += f" -E WHISPER_MODEL={shlex.quote(chosen_model)}"
+        if ld_library_path:
+            env += f" -E LD_LIBRARY_PATH={shlex.quote(ld_library_path)}"
         command = " ".join([
-            "systemd-run --user", f"--unit={LIVE_UNIT}", "--collect",
+            "systemd-run --user", f"--unit={LIVE_UNIT}", "--collect", env.strip(),
             shlex.quote(self.python), shlex.quote(self.live_script),
         ])
         return {"ok": self.run(command)[0] == 0}
@@ -404,7 +460,7 @@ class Recorder:
         self.run(f"systemctl --user reset-failed {LIVE_UNIT}", timeout=15)
 
     def transcript_tail(self, lines: int = 60) -> list[str]:
-        path = f"{self.recordings_dir}/live.txt"
+        path = f"{self.rec_dir()}/live.txt"
         out = self.run(f"tail -n {int(lines)} {shlex.quote(path)} 2>/dev/null")[1]
         return [line for line in out.splitlines() if line.strip()]
 
@@ -452,7 +508,7 @@ class Recorder:
 
     def recordings(self, limit: int = 20) -> list[dict]:
         listing = self.run(
-            f"ls -1t {shlex.quote(self.recordings_dir)}/call-*.mkv 2>/dev/null | head -{int(limit)}")[1]
+            f"ls -1t {shlex.quote(self.rec_dir())}/call-*.mkv 2>/dev/null | head -{int(limit)}")[1]
         items = []
         for path in [line.strip() for line in listing.splitlines() if line.strip()]:
             transcript = re.sub(r"\.mkv$", ".transcript.md", path)
@@ -586,6 +642,11 @@ TRANSCRIPTION_PROBE = (
     '&& { echo PY="$p"; break; }; done; '
     'for s in "$HOME/whisper/live.py" "$HOME/.local/share/call-recorder/live.py"; do '
     '[ -f "$s" ] && [ -f "$(dirname "$s")/archive.py" ] && { echo LIVE="$s"; break; }; done; '
+    'for d in "$HOME/models-be-small" "$HOME/models"/* "$HOME/whisper/models"/*; do '
+    '[ -f "$d/model.bin" ] && { echo MODEL="$d"; break; }; done; '
+    'for v in "$HOME/whisper/.venv"; do '
+    '[ -d "$v" ] && echo LD="$(ls -d "$v"/lib/python3*/site-packages/nvidia/*/lib 2>/dev/null | tr "\n" ":")"; '
+    'done; '
     'true'
 )
 
@@ -601,10 +662,11 @@ def detect_transcription(host: str | None = None, timeout: int = 20) -> dict:
     found: dict[str, str] = {}
     for line in out.splitlines():
         key, _, value = line.strip().partition("=")
-        if key in ("PY", "LIVE") and value.strip():
+        if key in ("PY", "LIVE", "MODEL", "LD") and value.strip():
             found[key] = value.strip()
     python, script = found.get("PY", ""), found.get("LIVE", "")
     return {"ok": bool(python and script), "python": python, "live_script": script,
+            "model": found.get("MODEL", ""), "ld_library_path": found.get("LD", "").strip(":"),
             "target": host or "local"}
 
 

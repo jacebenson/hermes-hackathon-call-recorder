@@ -139,15 +139,17 @@ def recorder() -> Recorder:
     cfg = settings()
     src = resolved_source()
     transc = resolved_transcription()
-    return Recorder(
+    live = Recorder(
         host=src["host"],
         recordings_dir=cfg["recordings_dir"],
         python=cfg["python"] or transc.get("python", ""),
         live_script=cfg["live_script"] or transc.get("live_script", ""),
-        whisper_model=cfg["whisper_model"],
+        whisper_model=cfg["whisper_model"] or transc.get("model", ""),
         auto_start=cfg["auto_start"],
         auto_stop_seconds=cfg["auto_stop_seconds"],
     )
+    live.ld_library_path = transc.get("ld_library_path", "")
+    return live
 
 
 _SOURCE_CACHE: dict = {"at": 0.0, "value": None}

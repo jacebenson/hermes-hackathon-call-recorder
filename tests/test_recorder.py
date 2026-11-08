@@ -300,6 +300,19 @@ class DetectionTests(unittest.TestCase):
             Recorder.run = original
         self.assertFalse(found["ok"])
 
+
+    def test_tilde_expands_on_the_target_not_literally(self):
+        """systemd-run does not expand `~`; a literal one created a directory named `~`."""
+        rec = FakeRecorder()
+        rec.recordings_dir = "~/recordings"
+        rec._home_dir = "/home/someone"
+        self.assertEqual(rec.rec_dir(), "/home/someone/recordings")
+
+    def test_an_absolute_directory_is_left_alone(self):
+        rec = FakeRecorder()
+        rec.recordings_dir = "/srv/calls"
+        self.assertEqual(rec.rec_dir(), "/srv/calls")
+
     def test_ssh_commands_are_quoted_once(self):
         """ssh joins argv with spaces; an unquoted multi-word command word-splits remotely."""
         rec = Recorder(host="desk", state_file="/nonexistent/x.json")
