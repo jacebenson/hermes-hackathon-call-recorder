@@ -316,8 +316,11 @@ class DetectionTests(unittest.TestCase):
         finally:
             recorder_mod.subprocess.run = original
         command = captured["argv"][-1]
-        # One shell word means the remote shell sees the whole pipeline intact.
-        self.assertEqual(shlex.split(command), ["pactl get-default-sink && echo done"])
+        # ssh joins argv and re-parses remotely: the command must arrive as one
+        # quoted argument, or the remote shell word-splits the pipeline.
+        self.assertTrue(command.startswith("bash -lc "))
+        inner = command[len("bash -lc "):]
+        self.assertEqual(shlex.split(inner), ["pactl get-default-sink && echo done"])
 
     def test_ssh_alias_parsing_skips_wildcards(self):
         with tempfile.NamedTemporaryFile("w", suffix=".conf", delete=False) as fh:

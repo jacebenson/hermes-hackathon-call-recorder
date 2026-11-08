@@ -124,7 +124,8 @@ class Recorder:
     def __init__(self, host: str | None = None, recordings_dir: str = "~/recordings",
                  python: str | None = None, live_script: str | None = None,
                  whisper_model: str | None = None, state_file: str = "~/.callrec-state.json",
-                 auto_start: bool = True, auto_stop_seconds: int = 180):
+                 auto_start: bool = True, auto_stop_seconds: int = 180,
+                 os_name: str = "linux"):
         self.host = (host or "").strip() or None
         self.recordings_dir = recordings_dir or "~/recordings"
         self.python = python or ""
@@ -133,17 +134,31 @@ class Recorder:
         self.state_file = state_file
         self.auto_start = bool(auto_start)
         self.auto_stop_seconds = int(auto_stop_seconds)
+        #: "linux" or "windows": which shell the commands below are written for.
+        self.os_name = (os_name or "linux").lower()
 
     # -- shell plumbing ----------------------------------------------------- #
 
-    def run(self, command: str, timeout: int = 30) -> tuple[int, str]:
+    def shell_argv(self, command: str) -> list[str]:
+        """The argv that runs *command* on this machine, quoted for ssh when remote."""
+        if self.os_name == "windows":
+            inner = ["powershell", "-NoProfile", "-NonInteractive", "-Command", command]
+        else:
+            inner = ["bash", "-lc", command]
         if self.host:
             # ssh joins its arguments with spaces and hands the result to the remote
-            # shell, which would then word-split a multi-word command. Quote it once.
-            argv = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
-                    self.host, "bash", "-lc", shlex.quote(command)]
-        else:
-            argv = ["bash", "-lc", command]
+            # shell. Linux gets shlex quoting; Windows OpenSSH lands in cmd.exe, where a
+            # single-quoted string is literal text, so it gets double quotes instead.
+            if self.os_name == "windows":
+                escaped = command.replace('"', '\\"')
+                remote = f'powershell -NoProfile -NonInteractive -Command "{escaped}"'
+            else:
+                remote = "bash -lc " + shlex.quote(command)
+            return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", self.host, remote]
+        return inner
+
+    def run(self, command: str, timeout: int = 30) -> tuple[int, str]:
+        argv = self.shell_argv(command)
         try:
             done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
             return done.returncode, (done.stdout or "") + (done.stderr or "")
@@ -207,6 +222,9 @@ class Recorder:
     # -- record ------------------------------------------------------------- #
 
     def start(self, live: bool = False) -> dict:
+        if self.os_name == "windows":
+            import capture_windows
+            return capture_windows.start(self, live)
         state = self.state()
         if state.get("unit") and self.unit_active(state["unit"]):
             return {"ok": True, "already": True, **self.status()}
@@ -235,6 +253,9 @@ class Recorder:
         return {"ok": True, **self.status()}
 
     def stop(self) -> dict:
+        if self.os_name == "windows":
+            import capture_windows
+            return capture_windows.stop(self)
         state = self.state()
         self.stop_live()
         if state.get("unit"):
@@ -251,6 +272,9 @@ class Recorder:
         return result
 
     def status(self) -> dict:
+        if self.os_name == "windows":
+            import capture_windows
+            return capture_windows.status(self)
         state = self.state()
         recording = self.unit_active(state.get("unit"))
         live = self.unit_active(LIVE_UNIT)

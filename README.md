@@ -75,13 +75,33 @@ Advanced keys (`python`, `live_script`, `auto_start`, `auto_stop_seconds`,
 variables or a `settings.json` beside `plugin.yaml`, but they are deliberately not on
 the page.
 
+## Transcription
+
+One path, two engines, no configuration. The recording is cut into two-minute
+slices and each slice is transcribed by whichever engine this machine can use:
+
+* **GPU** — faster-whisper on the recording machine. Fastest, keeps the audio
+  local, and gives per-line timing.
+* **Hermes** — the speech-to-text Hermes already has configured (the same one
+  push-to-talk uses). No install, no GPU, coarser timing: one stamp per slice,
+  because the upload route returns text without segments.
+
+The GPU is tried first because it is roughly ten times faster; if the recording
+machine has no Whisper runtime — Windows, a fresh Linux box — Hermes's own
+transcription takes over. If a GPU pass fails part-way it falls through to Hermes
+rather than losing the recording.
+
+Live transcription still needs a runtime on the recording machine: the upload
+route is one-shot, not streaming.
+
 ## Platform support
 
 | | today |
 | --- | --- |
 | Machine being recorded | **Linux with PipeWire.** It needs `pactl`, `ffmpeg` and a `systemd --user` session. |
 | Machine running Hermes | Linux. Remote targets are reached over SSH; local execution assumes a POSIX shell. |
-| Windows or macOS as the recorded machine | Not supported. That is a different capture path (WASAPI loopback / CoreAudio), not a different transport. |
+| Windows as the recorded machine | Capture verified by hand (two DirectShow devices into a two-track mkv), driver check in place; the supervisor process is not wired yet. Needs a virtual cable. |
+| macOS as the recorded machine | Not supported yet. Needs BlackHole and an avfoundation capture path that has not been tested on real hardware. |
 | Transport | SSH only. No HTTP agent, so nothing new listens on the recorded machine and the SSH key is the credential. |
 
 SSH is the *client* side on the Hermes host, which Windows 10+ ships as `ssh.exe`,

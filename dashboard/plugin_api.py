@@ -38,6 +38,8 @@ import sys
 if str(_PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(_PLUGIN_ROOT))
 
+from transcribe import hermes_stt_configured  # noqa: E402
+from transcribe import transcribe as run_transcription  # noqa: E402
 from recorder import (  # noqa: E402
     Recorder,
     choose_source,
@@ -241,7 +243,9 @@ def _config_payload() -> dict:
         "why": src["why"],
         "probe": src.get("probe") or {},
         "recordings_dir": cfg["recordings_dir"],
-        "transcription": bool(transc.get("ok")),
+        "transcription": bool(transc.get("ok")) or hermes_stt_configured(),
+        "transcription_engine": "gpu" if transc.get("ok") else
+                                ("hermes" if hermes_stt_configured() else "unavailable"),
         "transcription_mode": transc.get("mode"),
         "transcription_detail": transc.get("python") or "not found on that machine",
         "auto_start": cfg["auto_start"],
@@ -319,10 +323,20 @@ async def read_transcript(path: str) -> dict:
 
 @router.post("/transcribe")
 async def post_transcribe(body: dict) -> dict:
+    """Transcribe one recording with whichever engine this setup can use."""
     path = (body or {}).get("file", "")
     if not path:
         return {"ok": False, "error": "file is required"}
-    return await asyncio.to_thread(lambda: recorder().transcribe(path))
+
+    def _run() -> dict:
+        rec = recorder()
+        transc = resolved_transcription()
+        script = transc.get("live_script") or ""
+        archive = script.replace("live.py", "archive.py") if script.endswith("live.py") else ""
+        return run_transcription(rec, path, rec.duration(path) or 0,
+                                 gpu_python=transc.get("python") or "",
+                                 gpu_script=archive, prefer_gpu=bool(archive))
+    return await asyncio.to_thread(_run)
 
 
 # The plugin is imported by the dashboard process once, at startup: this is where
