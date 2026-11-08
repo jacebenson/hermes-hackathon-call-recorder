@@ -1,5 +1,9 @@
 name: call-recorder
-version: "1.1.1"
+version: "1.2.0"
+requires_hermes: ">=0.23.0"
+license: MIT
+homepage: https://github.com/jacebenson/hermes-hackathon-call-recorder
+tags: [recording, transcription, audio, meetings, whisper]
 description: Record both sides of a call (system audio + mic) and transcribe it. Ships
   a record button in the composer, a status chip, and a pane with the live transcript,
   the finished recordings and their transcripts.

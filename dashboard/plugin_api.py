@@ -39,7 +39,6 @@ if str(_PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(_PLUGIN_ROOT))
 
 from platforms import readiness as platform_readiness  # noqa: E402
-from transcribe import hermes_stt_configured  # noqa: E402
 from transcribe import transcribe as run_transcription  # noqa: E402
 from recorder import (  # noqa: E402
     Recorder,
@@ -269,9 +268,8 @@ def _config_payload() -> dict:
         "probe": src.get("probe") or {},
         "recordings_dir": cfg["recordings_dir"],
         "readiness": resolved_readiness(),
-        "transcription": bool(transc.get("ok")) or hermes_stt_configured(),
-        "transcription_engine": "gpu" if transc.get("ok") else
-                                ("hermes" if hermes_stt_configured() else "unavailable"),
+        "transcription": bool(transc.get("ok")),
+        "transcription_engine": "gpu" if transc.get("ok") else "unavailable",
         "transcription_mode": transc.get("mode"),
         "transcription_detail": transc.get("python") or "not found on that machine",
         "auto_start": cfg["auto_start"],

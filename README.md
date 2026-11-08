@@ -109,22 +109,21 @@ there is no live view — the upload route Hermes exposes is one-shot, not strea
 
 ## Transcription
 
-One path, two engines, no configuration. The recording is cut into two-minute
-slices and each slice is transcribed by whichever engine this machine can use:
+One engine: faster-whisper on the recording machine. The recording is cut into
+slices and transcribed there, which keeps the audio local, uses the GPU the machine
+already has, and gives per-line timing.
 
-* **GPU** — faster-whisper on the recording machine. Fastest, keeps the audio
-  local, and gives per-line timing.
-* **Hermes** — the speech-to-text Hermes already has configured (the same one
-  push-to-talk uses). No install, no GPU, coarser timing: one stamp per slice,
-  because the upload route returns text without segments.
+There is no cloud fallback on purpose. Reaching into Hermes's internal speech module
+would break on any core release — a private import is exactly what the plugin catalog
+asks authors not to ship — so when the recording machine has no Whisper runtime the
+plugin says `transcription: unavailable` and records only. Install it once:
 
-The GPU is tried first because it is roughly ten times faster; if the recording
-machine has no Whisper runtime — Windows, a fresh Linux box — Hermes's own
-transcription takes over. If a GPU pass fails part-way it falls through to Hermes
-rather than losing the recording.
+```bash
+uv venv ~/whisper/.venv && ~/whisper/.venv/bin/python -m pip install faster-whisper
+```
 
-Live transcription still needs a runtime on the recording machine: the upload
-route is one-shot, not streaming.
+The plugin finds that interpreter, ships its own transcription scripts to the machine,
+and reads back the segment count so the pane can show what actually happened.
 
 ## Platform support
 
@@ -166,6 +165,31 @@ SSH is the *client* side on the Hermes host, which Windows 10+ ships as `ssh.exe
 so driving a Linux desktop from a Windows gateway is mostly a matter of replacing
 the `bash -lc` local runner. An HTTP agent would work too but it means opening a
 port and inventing an auth story — the reason it is not the default.
+
+## What it touches (disclosure)
+
+Catalog rule 13 asks a plugin to say what a user would want to know before installing.
+
+* **It reads your SSH config.** `~/.ssh/config` supplies the candidate machines when no
+  host is pinned; the plugin reads host aliases only and never touches keys.
+* **It runs shell commands over SSH.** `pactl`, `ffmpeg`, `systemctl --user` on Linux; on
+  Windows `powershell`, `ffprobe` and a scheduled task. Nothing new listens on the
+  recorded machine — SSH is both the transport and the credential.
+* **It installs its own helper scripts on the recording machine**, in
+  `~/.local/share/call-recorder/` (Linux) or `%USERPROFILE%\.call-recorder\` (Windows).
+  They are rewritten from the plugin on every start so a stale copy cannot drift.
+* **It starts long-running background work:** an ffmpeg capture as a `systemd --user`
+  unit (Linux) or a scheduled task plus a Python process (Windows). Both stop when you
+  stop the recording, and the pane shows what is running.
+* **Windows needs one pip package**, `pyaudiowpatch`, and a logged-in desktop session.
+  No driver, no admin rights, no certificate to trust.
+* **Transcription is local.** Whisper runs on the recording machine; no audio leaves it.
+  If there is no Whisper there, the plugin records and says transcription is unavailable.
+* **No credentials are stored.** Nothing is written to `auth.json`, `.env` files or any
+  other key store, and the plugin never refreshes or holds a token.
+* **Recordings and transcripts are plain files** on the recording machine, named
+  `call-YYYYMMDD-HHMMSS.mkv` with a `system` and a `mic` track, plus
+  `<file>.transcript.md` beside it.
 
 ## How it works
 
