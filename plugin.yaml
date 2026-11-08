@@ -1,5 +1,5 @@
 name: call-recorder
-version: "0.3.2"
+version: "0.4.0"
 description: Record both sides of a call (system audio + mic) and transcribe it live
   and after the fact. Ships a composer record button, a status chip and a pane with
   the live transcript and finished recordings.
@@ -20,14 +20,14 @@ config_schema:
   python:
     type: str
     label: Transcription interpreter
-    description: Python on the recorded machine that can import faster_whisper, e.g.
-      ~/whisper/.venv/bin/python. Empty disables transcription; recording still works.
+    description: Leave empty. The recorder finds a Python on the recorded machine that
+      can import faster_whisper. Set it only to pin a specific interpreter.
     default: ""
   live_script:
     type: str
     label: Live transcription script
-    description: Path to live.py on the recorded machine. archive.py must sit beside it;
-      both ship in this plugin's scripts folder.
+    description: Leave empty. The recorder looks for live.py with archive.py beside it.
+      Set it only to pin a specific copy.
     default: ""
   auto_start:
     type: bool

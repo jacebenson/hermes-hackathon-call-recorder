@@ -55,11 +55,25 @@ generated from the `config_schema` in `plugin.yaml`. Nothing to hand-edit.
 | --- | --- |
 | Audio source machine | Leave empty. See below — it finds the machine with the microphone. |
 | Recordings folder | Where the two-track mkv files land, on the recorded machine. |
-| Transcription interpreter | Python on the recorded machine that can import `faster_whisper`. Empty disables transcription; recording still works. |
-| Live transcription script | Path to `live.py` on the recorded machine; `archive.py` must sit beside it. |
+| Transcription interpreter | Leave empty. Found on the recorded machine. |
+| Live transcription script | Leave empty. Found next to `archive.py`. |
 | Start recording automatically | Starts when a call app is both playing audio and capturing the mic. |
 | Stop delay (seconds) | How long to keep recording after the call disappears. `0` never stops automatically. |
 | Check interval (seconds) | How often the recorder looks for a call. |
+
+### Nothing has to be typed
+
+All three of the fiddly answers are discovered, not asked for:
+
+- **Which machine** — the one with a call in progress, else the one with audio, else
+  the first SSH host that has either.
+- **Which Python** — the first interpreter on that machine that can import
+  `faster_whisper` (`~/whisper/.venv/bin/python` is checked first, plus `python3`).
+- **Which script** — `live.py` with `archive.py` beside it.
+
+An empty settings page is a working configuration. The fields exist to pin
+something specific, and the pane says what was chosen: *"a call is in progress on
+beast-1"*, *"transcription: /home/jace/whisper/.venv/bin/python"*.
 
 ### Which machine gets recorded
 

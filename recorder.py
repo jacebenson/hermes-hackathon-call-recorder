@@ -491,6 +491,36 @@ def ssh_aliases(config: str = "~/.ssh/config") -> list[str]:
     return aliases
 
 
+TRANSCRIPTION_PROBE = (
+    # A python that can import faster_whisper, and a live.py with archive.py beside it.
+    'for p in "$HOME/whisper/.venv/bin/python" "$HOME/.venv/bin/python3" '
+    '"/usr/bin/python3" "$(command -v python3 2>/dev/null)"; do '
+    '[ -n "$p" ] && [ -x "$p" ] && "$p" -c "import faster_whisper" >/dev/null 2>&1 '
+    '&& { echo PY="$p"; break; }; done; '
+    'for s in "$HOME/whisper/live.py" "$HOME/.local/share/call-recorder/live.py"; do '
+    '[ -f "$s" ] && [ -f "$(dirname "$s")/archive.py" ] && { echo LIVE="$s"; break; }; done; '
+    'true'
+)
+
+
+def detect_transcription(host: str | None = None, timeout: int = 20) -> dict:
+    """Find a Whisper runtime on the recorded machine so nobody has to type paths.
+
+    Both halves are required: an interpreter that can import faster_whisper, and a
+    live.py with archive.py beside it. Missing either means "record only".
+    """
+    rec = Recorder(host=host, state_file="/nonexistent/callrec-probe.json")
+    _code, out = rec.run(TRANSCRIPTION_PROBE, timeout=timeout)
+    found: dict[str, str] = {}
+    for line in out.splitlines():
+        key, _, value = line.strip().partition("=")
+        if key in ("PY", "LIVE") and value.strip():
+            found[key] = value.strip()
+    python, script = found.get("PY", ""), found.get("LIVE", "")
+    return {"ok": bool(python and script), "python": python, "live_script": script,
+            "target": host or "local"}
+
+
 def detect_candidates(limit: int = 12, timeout: int = 5) -> list[dict]:
     """Probe the local machine and each SSH alias, and say which ones can record."""
     candidates = [probe(None, timeout=timeout)]

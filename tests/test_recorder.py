@@ -276,6 +276,30 @@ class DetectionTests(unittest.TestCase):
         self.assertIn("needs Linux with PipeWire", choice["why"])
         self.assertIn("MINGW64", choice["why"])
 
+
+    def test_transcription_paths_are_detected_not_typed(self):
+        rec = Recorder(host="desk", state_file="/nonexistent/x.json")
+        output = 'PY=/home/u/whisper/.venv/bin/python\nLIVE=/home/u/whisper/live.py\n'
+        original = Recorder.run
+        Recorder.run = lambda self, cmd, timeout=30: (0, output)
+        try:
+            found = recorder_mod.detect_transcription("desk")
+        finally:
+            Recorder.run = original
+        self.assertTrue(found["ok"])
+        self.assertEqual(found["python"], "/home/u/whisper/.venv/bin/python")
+        self.assertEqual(found["live_script"], "/home/u/whisper/live.py")
+
+    def test_half_a_runtime_is_not_transcription(self):
+        """faster_whisper without the scripts records fine and transcribes nothing."""
+        original = Recorder.run
+        Recorder.run = lambda self, cmd, timeout=30: (0, "PY=/usr/bin/python3\n")
+        try:
+            found = recorder_mod.detect_transcription(None)
+        finally:
+            Recorder.run = original
+        self.assertFalse(found["ok"])
+
     def test_ssh_commands_are_quoted_once(self):
         """ssh joins argv with spaces; an unquoted multi-word command word-splits remotely."""
         rec = Recorder(host="desk", state_file="/nonexistent/x.json")

@@ -38,7 +38,14 @@ import sys
 if str(_PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(_PLUGIN_ROOT))
 
-from recorder import Recorder, choose_source, detect_candidates, probe, ssh_aliases  # noqa: E402
+from recorder import (  # noqa: E402
+    Recorder,
+    choose_source,
+    detect_candidates,
+    detect_transcription,
+    probe,
+    ssh_aliases,
+)
 
 router = APIRouter()
 
@@ -114,11 +121,12 @@ def settings() -> dict:
 def recorder() -> Recorder:
     cfg = settings()
     src = resolved_source()
+    transc = resolved_transcription()
     return Recorder(
         host=src["host"],
         recordings_dir=cfg["recordings_dir"],
-        python=cfg["python"],
-        live_script=cfg["live_script"],
+        python=cfg["python"] or transc.get("python", ""),
+        live_script=cfg["live_script"] or transc.get("live_script", ""),
         whisper_model=cfg["whisper_model"],
         auto_start=cfg["auto_start"],
         auto_stop_seconds=cfg["auto_stop_seconds"],
@@ -142,6 +150,34 @@ def resolved_source(force: bool = False) -> dict:
                   "why": f"detection failed: {exc}"}
     _SOURCE_CACHE.update({"at": now, "value": choice})
     return choice
+
+
+_TRANSCRIPTION_CACHE: dict = {"at": 0.0, "host": None, "value": None}
+
+
+def resolved_transcription() -> dict:
+    """Where Whisper lives, detected once per host instead of typed into a field.
+
+    Both settings empty means "find it yourself"; setting either one pins the pair.
+    """
+    cfg = settings()
+    if cfg["python"] and cfg["live_script"]:
+        return {"ok": True, "mode": "configured", "python": cfg["python"],
+                "live_script": cfg["live_script"], "target": resolved_source()["host"] or "local"}
+    host = resolved_source()["host"]
+    now = time.time()
+    cached = _TRANSCRIPTION_CACHE.get("value")
+    if cached is not None and _TRANSCRIPTION_CACHE.get("host") == host \
+            and now - float(_TRANSCRIPTION_CACHE.get("at") or 0) < 300:
+        return cached
+    try:
+        found = detect_transcription(host or None)
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("call-recorder: transcription detection failed: %s", exc)
+        found = {"ok": False, "python": "", "live_script": "", "target": host or "local"}
+    result = {**found, "mode": "auto" if found.get("ok") else "unavailable"}
+    _TRANSCRIPTION_CACHE.update({"at": now, "host": host, "value": result})
+    return result
 
 
 _WATCHER_STARTED = False
@@ -174,6 +210,7 @@ def ensure_watcher() -> None:
 def _config_payload() -> dict:
     cfg = settings()
     src = resolved_source()
+    transc = resolved_transcription()
     rec = recorder()
     code, out = rec.run("echo ok")
     return {
@@ -183,7 +220,9 @@ def _config_payload() -> dict:
         "why": src["why"],
         "probe": src.get("probe") or {},
         "recordings_dir": cfg["recordings_dir"],
-        "transcription": bool(cfg["python"] and cfg["live_script"]),
+        "transcription": bool(transc.get("ok")),
+        "transcription_mode": transc.get("mode"),
+        "transcription_detail": transc.get("python") or "not found on that machine",
         "auto_start": cfg["auto_start"],
         "auto_stop_seconds": cfg["auto_stop_seconds"],
         "reachable": code == 0,
