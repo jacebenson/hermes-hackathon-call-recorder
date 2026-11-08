@@ -136,6 +136,33 @@ route is one-shot, not streaming.
 | macOS as the recorded machine | Not supported yet. Needs BlackHole and an avfoundation capture path that has not been tested on real hardware. |
 | Transport | SSH only. No HTTP agent, so nothing new listens on the recorded machine and the SSH key is the credential. |
 
+## Windows: install the loopback driver first
+
+Windows has no monitor source the way PipeWire does, so the machine cannot hear the
+call until a virtual cable exists. One install, done once per machine:
+
+```powershell
+# administrator PowerShell
+choco install vb-cable -y
+```
+
+No Chocolatey? The same driver comes from [vb-audio.com](https://vb-audio.com/Cable/)
+as a zipped installer, and needs a reboot before the device appears.
+
+Then two settings, both required:
+
+1. **Point the call at it.** In the meeting app, set the speaker to `CABLE Input
+   (VB-Audio Virtual Cable)`. The call's audio now flows into the cable.
+2. **Listen to the cable.** Windows sound settings → Recording → `CABLE Output` →
+   Properties → Listen → tick *Listen to this device* → pick your headphones.
+
+Step two is the one people skip: without it the room goes silent, because the call's
+audio is being captured by us instead of played to you. Volume still works normally.
+
+Now `Readiness` turns `ready`, and recordings are named `call-YYYYMMDD-HHMMSS.mkv`
+with a `system` track and a `mic` track. Delete the cable later and the plugin goes
+back to reporting `blocked` with the fix — it does not record half a call silently.
+
 SSH is the *client* side on the Hermes host, which Windows 10+ ships as `ssh.exe`,
 so driving a Linux desktop from a Windows gateway is mostly a matter of replacing
 the `bash -lc` local runner. An HTTP agent would work too but it means opening a

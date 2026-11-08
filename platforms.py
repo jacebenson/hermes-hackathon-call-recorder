@@ -33,8 +33,9 @@ LOOPBACK_HINTS = {**{k: v + LOOPBACK_WEAK.get(k, ()) for k, v in LOOPBACK_STRONG
                   **{k: v for k, v in LOOPBACK_WEAK.items() if k not in LOOPBACK_STRONG}}
 
 FIXES = {
-    WINDOWS: ("Install VB-CABLE (free), set the call's speaker to 'CABLE Input', and turn on "
-              "Listen for that device so you can still hear the call."),
+    WINDOWS: ("Install a loopback driver: 'choco install vb-cable -y' in an administrator "
+              "PowerShell (or the installer from vb-audio.com), then set the call's speaker to "
+              "'CABLE Input' and turn on Listen on 'CABLE Output' so you can still hear it."),
     MACOS: ("Install BlackHole 2ch and set the call's output to 'BlackHole 2ch'."),
 }
 
