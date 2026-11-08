@@ -339,6 +339,28 @@ function RecorderPane({ ctx }) {
           })
         ]
       }),
+      cfg.readiness && cfg.readiness.state && cfg.readiness.state !== 'ready'
+        ? jsxs('div', {
+            className:
+              'flex items-start justify-between gap-2 rounded border border-amber-500/40 bg-amber-500/10 p-2 text-[0.6875rem] leading-snug text-amber-500',
+            children: [
+              jsxs('div', {
+                className: 'min-w-0',
+                children: [
+                  jsx('div', { children: cfg.readiness.detail || 'this machine cannot capture audio' }),
+                  cfg.readiness.fix ? jsx('div', { className: 'mt-0.5 opacity-80', children: cfg.readiness.fix }) : null
+                ]
+              }),
+              jsx(Button, {
+                size: 'sm',
+                variant: 'secondary',
+                disabled: busy,
+                onClick: () => call('/recheck'),
+                children: 'Check again'
+              })
+            ]
+          })
+        : null,
       jsx('div', { className: 'h-px bg-(--ui-stroke-secondary)' }),
       jsx('div', {
         ref: tailRef,
@@ -428,7 +450,10 @@ function RecorderPane({ ctx }) {
                 r.file
               )
             )
-          : jsx('div', { className: 'text-[0.6875rem] text-(--ui-text-quaternary)', children: 'none yet' })
+          : jsx('div', {
+              className: 'text-[0.6875rem] leading-snug text-(--ui-text-quaternary)',
+              children: 'nothing recorded yet - click the rec button next to the composer while you are on a call'
+            })
       })
     ]
   })
@@ -464,6 +489,10 @@ function LiveStrip({ ctx }) {
             {
               className: 'flex gap-1.5',
               children: [
+                jsx('span', {
+                  className: 'w-8 shrink-0 font-sans text-[0.5625rem] uppercase tracking-wide text-red-500',
+                  children: i === 0 ? 'live' : ''
+                }),
                 jsx('span', { className: 'w-14 shrink-0 text-(--ui-text-quaternary)', children: p.t }),
                 jsx('span', {
                   className: cn('w-9 shrink-0 font-semibold', p.who === 'you' ? 'text-green-500' : 'text-blue-400'),

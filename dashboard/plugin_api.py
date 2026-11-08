@@ -38,6 +38,7 @@ import sys
 if str(_PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(_PLUGIN_ROOT))
 
+from platforms import readiness as platform_readiness  # noqa: E402
 from transcribe import hermes_stt_configured  # noqa: E402
 from transcribe import transcribe as run_transcription  # noqa: E402
 from recorder import (  # noqa: E402
@@ -171,6 +172,26 @@ def resolved_source(force: bool = False) -> dict:
     return choice
 
 
+_READINESS_CACHE: dict = {"at": 0.0, "host": None, "value": None}
+
+
+def resolved_readiness() -> dict:
+    """Can the target capture audio at all, and what is missing if not."""
+    host = resolved_source()["host"]
+    now = time.time()
+    cached = _READINESS_CACHE.get("value")
+    if cached is not None and _READINESS_CACHE.get("host") == host \
+            and now - float(_READINESS_CACHE.get("at") or 0) < 60:
+        return cached
+    try:
+        value = platform_readiness(Recorder, host or None)
+    except Exception as exc:  # noqa: BLE001 - never break the routes over a probe
+        _log.warning("call-recorder: readiness failed: %s", exc)
+        value = {"state": "unknown", "detail": str(exc)[:200]}
+    _READINESS_CACHE.update({"at": now, "host": host, "value": value})
+    return value
+
+
 _TRANSCRIPTION_CACHE: dict = {"at": 0.0, "host": None, "value": None}
 
 
@@ -245,6 +266,7 @@ def _config_payload() -> dict:
         "why": src["why"],
         "probe": src.get("probe") or {},
         "recordings_dir": cfg["recordings_dir"],
+        "readiness": resolved_readiness(),
         "transcription": bool(transc.get("ok")) or hermes_stt_configured(),
         "transcription_engine": "gpu" if transc.get("ok") else
                                 ("hermes" if hermes_stt_configured() else "unavailable"),
@@ -282,6 +304,17 @@ async def post_stop() -> dict:
 async def post_keep() -> dict:
     """Cancel the auto-stop countdown: keep recording until told otherwise."""
     return await asyncio.to_thread(lambda: recorder().keep())
+
+
+@router.post("/recheck")
+async def post_recheck() -> dict:
+    """Forget every cached detection and look again (used after installing a driver)."""
+    def _recheck() -> dict:
+        _SOURCE_CACHE.update({"at": 0.0, "value": None})
+        _TRANSCRIPTION_CACHE.update({"at": 0.0, "host": None, "value": None})
+        _READINESS_CACHE.update({"at": 0.0, "host": None, "value": None})
+        return _config_payload()
+    return await asyncio.to_thread(_recheck)
 
 
 @router.get("/call")
