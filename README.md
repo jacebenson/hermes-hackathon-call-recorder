@@ -88,6 +88,20 @@ settings (`plugins.entries.call-recorder.settings` in `config.yaml`), then an op
 and an environment variable can pin a machine-specific value without editing config.
 
 
+## Platform support
+
+| | today |
+| --- | --- |
+| Machine being recorded | **Linux with PipeWire.** It needs `pactl`, `ffmpeg` and a `systemd --user` session. |
+| Machine running Hermes | Linux. Remote targets are reached over SSH; local execution assumes a POSIX shell. |
+| Windows or macOS as the recorded machine | Not supported. That is a different capture path (WASAPI loopback / CoreAudio), not a different transport. |
+| Transport | SSH only. No HTTP agent, so nothing new listens on the recorded machine and the SSH key is the credential. |
+
+SSH is the *client* side on the Hermes host, which Windows 10+ ships as `ssh.exe`,
+so driving a Linux desktop from a Windows gateway is mostly a matter of replacing
+the `bash -lc` local runner. An HTTP agent would work too but it means opening a
+port and inventing an auth story — the reason it is not the default.
+
 ## How it works
 
 ```

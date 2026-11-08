@@ -266,6 +266,16 @@ class DetectionTests(unittest.TestCase):
         self.assertEqual((choice["mode"], choice["host"]), ("local", ""))
         self.assertIn("call is in progress on this machine", choice["why"])
 
+
+    def test_a_non_linux_host_gets_an_honest_reason(self):
+        """No bash, no pactl, no systemd on Windows: say that instead of 'nothing found'."""
+        windows = self.machine("local", audio=False)
+        windows["os"] = "MINGW64_NT-10.0"
+        choice = recorder_mod.choose_source("", candidates=[windows])
+        self.assertEqual(choice["mode"], "unsupported")
+        self.assertIn("needs Linux with PipeWire", choice["why"])
+        self.assertIn("MINGW64", choice["why"])
+
     def test_ssh_commands_are_quoted_once(self):
         """ssh joins argv with spaces; an unquoted multi-word command word-splits remotely."""
         rec = Recorder(host="desk", state_file="/nonexistent/x.json")

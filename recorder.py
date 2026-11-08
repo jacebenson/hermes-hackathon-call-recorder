@@ -416,6 +416,7 @@ _CALL_APP_PATTERN = "|".join(CALL_APPS)
 
 PROBE_SCRIPT = (
     'echo HOST=$(uname -n 2>/dev/null || hostname 2>/dev/null); '
+    'echo OS=$(uname -s 2>/dev/null || echo unknown); '
     'command -v pactl >/dev/null 2>&1 && echo PIPEWIRE=1 || echo PIPEWIRE=0; '
     'command -v ffmpeg >/dev/null 2>&1 && echo FFMPEG=1 || echo FFMPEG=0; '
     'systemctl --user is-system-running 2>/dev/null | sed "s/^/SYSTEMD=/"; '
@@ -454,6 +455,7 @@ def probe(host: str | None = None, timeout: int = 8) -> dict:
         "target": host or "local",
         "reachable": reachable,
         "hostname": found.get("HOST"),
+        "os": found.get("OS") or "unknown",
         "pipewire": found.get("PIPEWIRE") == "1",
         "ffmpeg": found.get("FFMPEG") == "1",
         "systemd": found.get("SYSTEMD") or "",
@@ -497,6 +499,17 @@ def detect_candidates(limit: int = 12, timeout: int = 5) -> list[dict]:
     return candidates
 
 
+def _missing(local: dict) -> dict:
+    """Why no machine was chosen - the OS case deserves its own sentence."""
+    local_os = (local.get("os") or "").lower()
+    if local_os and local_os != "linux":
+        return {"host": "", "mode": "unsupported", "probe": local,
+                "why": f"recording needs Linux with PipeWire; this host is {local.get('os')}"
+                       " - name a Linux machine in settings"}
+    return {"host": "", "mode": "none", "probe": local,
+            "why": "no machine with a microphone was found - set one in settings"}
+
+
 def choose_source(configured_host: str = "", candidates: list[dict] | None = None) -> dict:
     """Decide which machine to record, and say why.
 
@@ -530,8 +543,7 @@ def choose_source(configured_host: str = "", candidates: list[dict] | None = Non
                 local_name = local.get("hostname") or "this machine"
                 return {"host": candidate["target"], "mode": "auto", "probe": candidate,
                         "why": f"{local_name} has no audio devices; {candidate['target']} does"}
-        return {"host": "", "mode": "none", "probe": local,
-                "why": "no machine with a microphone was found - set one in settings"}
+        return _missing(local)
 
     # Lazy on purpose: probing every SSH alias costs seconds.
     #
@@ -559,7 +571,6 @@ def choose_source(configured_host: str = "", candidates: list[dict] | None = Non
             local_name = local.get("hostname") or "this machine"
             return {"host": candidate["target"], "mode": "auto", "probe": candidate,
                     "why": f"{local_name} has no audio devices; {candidate['target']} does"}
-    return {"host": "", "mode": "none", "probe": local,
-            "why": "no machine with a microphone was found - set one in settings"}
+    return _missing(local)
 
 
