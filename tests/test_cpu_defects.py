@@ -41,6 +41,23 @@ class CpuDefects(unittest.TestCase):
             spec.loader.exec_module(module)
         return module
 
+    def test_browser_archive_only_transcribes_single_voice_mix(self):
+        archive = self.archive()
+        class Audio(list):
+            def __truediv__(self, value):
+                return self
+        model = types.SimpleNamespace(transcribe=lambda *a, **kw: ([types.SimpleNamespace(start=1, text='fixture speech')], None))
+        numpy = types.SimpleNamespace(int16=int, float32=float, memmap=lambda *a, **kw: [1], asarray=lambda *a, **kw: Audio([1]))
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'call.mkv'
+            with patch.dict(os.environ, {'CALLREC_SINGLE_TRACK': '1'}), patch.object(archive, 'np', numpy), patch.object(archive, 'WhisperModel', return_value=model), patch.object(archive, 'track_to_raw') as extract, patch.object(sys, 'argv', ['archive.py', str(source)]):
+                self.assertEqual(archive.main(), 0)
+            self.assertEqual([call.args[1] for call in extract.call_args_list], [0])
+            text = source.with_suffix('.transcript.md').read_text()
+            self.assertIn('voice mix:', text)
+            self.assertNotIn('you:', text)
+            self.assertNotIn('them:', text)
+
     def test_archive_never_publishes_header_without_rows(self):
         archive = self.archive()
         with tempfile.TemporaryDirectory() as directory:

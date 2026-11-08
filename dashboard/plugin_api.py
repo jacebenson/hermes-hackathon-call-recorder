@@ -11,9 +11,9 @@ Mounted by Hermes at ``/api/plugins/call-recorder/``:
   GET  /transcript/read?path=…  → markdown of a finished transcript
   POST /transcribe {file} → run the archive pass for one recording
 
-Nothing here talks HTTP to the recorder: it shells out locally, or over SSH when
-``host`` is set. The caller's SSH key is the credential, so there is no open port
-and no token to leak.
+Native control shells out locally, or over existing SSH when ``host`` is set.
+Browser microphone uploads use Hermes's authenticated plugin API and backend storage;
+they never launch computer capture or require an SSH credential.
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ import time
 from pathlib import Path
 
 from fastapi import APIRouter
+from starlette.requests import Request
 
 _log = logging.getLogger("hermes.plugins.call-recorder")
 
@@ -58,6 +59,7 @@ router = APIRouter()
 #: manifest schema: the settings page asks four questions, not seven.
 DEFAULTS = {
     "host": "",                    # "" = the machine Hermes runs on
+    "capture_mode": "browser",
     "recordings_dir": "~/recordings",
     "transcribe": True,            # the one transcription switch
     "stop_when_call_ends": True,   # three minutes of grace, then stop and transcribe
@@ -128,6 +130,9 @@ def settings() -> dict:
         pass
     manifest = manifest_settings()
     merged.update({k: v for k, v in manifest.items() if k in DEFAULTS})
+    if 'capture_mode' not in saved and 'capture_mode' not in manifest:
+        # Explicit legacy local capture is as intentional as an SSH host.
+        merged['capture_mode'] = 'computer' if ('host' in saved or 'host' in manifest or os.environ.get('CALLREC_HOST')) else 'browser'
     # A pane choice wins over the page value it replaced, but a later explicit
     # change in Settings wins again. Keep all other settings' precedence intact.
     if "_capture_host_manifest" in saved and saved["_capture_host_manifest"] == manifest.get("host"):
@@ -247,7 +252,17 @@ def _store(rec, path: str) -> dict:
     return result
 
 
+def browser_transcription() -> dict:
+    # The browser archive script ships here; native live helpers are not required.
+    runtime = detect_transcription(None)
+    return {**runtime, "ok": bool(runtime.get("python"))}
+
+
 def _transcribe(rec, path: str) -> dict:
+    target = RecordingLibrary().target(path)
+    if target and target[2].get("capture_mode") == "browser":
+        from browser_audio import transcribe_microphone
+        return transcribe_microphone(path, browser_transcription())
     # Stored actions use the backend runtime, never the currently selected host.
     if not rec.host and RecordingLibrary().target(path):
         transc = {**detect_transcription(None),
@@ -343,6 +358,8 @@ def _after_stop(rec, result: dict) -> dict:
 
 
 def _status_payload() -> dict:
+    if settings().get("capture_mode") == "browser":
+        return {"ok": True, "recording": False, "live": False, "transcriptions": []}
     rec = recorder()
     with _TRANSCRIPTION_LOCK:
         jobs = [dict(job) for (host, _), job in _TRANSCRIPTION_JOBS.items()
@@ -358,6 +375,9 @@ def _watch() -> None:
     interval = max(3, int(settings().get("watch_seconds") or 10))
     while True:
         try:
+            if settings().get("capture_mode") == "browser":
+                time.sleep(interval)
+                continue
             rec = recorder()
             decision = rec.tick()
             if decision.get("action") == "stopped":
@@ -373,7 +393,7 @@ def ensure_watcher() -> None:
     """Start the automation thread once per process, only when there is work to do."""
     global _WATCHER_STARTED
     cfg = settings()
-    if _WATCHER_STARTED or not (cfg["auto_start"] or int(cfg["auto_stop_seconds"] or 0) > 0):
+    if cfg.get("capture_mode") == "browser" or _WATCHER_STARTED or not (cfg["auto_start"] or int(cfg["auto_stop_seconds"] or 0) > 0):
         return
     _WATCHER_STARTED = True
     threading.Thread(target=_watch, name="call-recorder-watch", daemon=True).start()
@@ -382,6 +402,12 @@ def ensure_watcher() -> None:
 
 def _config_payload() -> dict:
     cfg = settings()
+    if cfg.get("capture_mode") == "browser":
+        transc = browser_transcription()
+        return {"ok": True, "capture_mode": "browser", "host": cfg["host"] or "local",
+                "host_label": cfg["host"] or f"backend ({socket.gethostname()})",
+                "transcription": bool(transc.get("ok")), "live": False,
+                "transcription_detail": "Backend Whisper available" if transc.get("ok") else "Backend Whisper unavailable"}
     src = resolved_source()
     transc = resolved_transcription()
     rec = recorder()
@@ -452,7 +478,7 @@ def _capture_host_payload(saved: dict | None = None) -> dict:
     if not isinstance(saved, dict):
         saved = {}
     host = settings()["host"]
-    return {"ok": True, "host": host,
+    return {"ok": True, "capture_mode": settings()["capture_mode"], "host": host,
             "host_label": host or f"local ({socket.gethostname()})",
             "recent_hosts": _recent_hosts(saved, host)}
 
@@ -482,7 +508,7 @@ async def post_capture_host(body: dict) -> dict:
                 if not isinstance(saved, dict):
                     raise ValueError("settings.json must contain an object")
                 previous = settings()["host"]
-                saved.update(host=host, recent_hosts=_recent_hosts(saved, host, previous),
+                saved.update(host=host, capture_mode="computer", recent_hosts=_recent_hosts(saved, host, previous),
                              _capture_host_manifest=manifest_settings().get("host"))
                 # Replace one file containing both selection and history, never
                 # truncate the previous settings when a write fails midway.
@@ -506,6 +532,70 @@ async def post_capture_host(body: dict) -> dict:
     return await asyncio.to_thread(_save)
 
 
+@router.post("/capture-mode")
+async def post_capture_mode(body: dict) -> dict:
+    mode = body.get('capture_mode')
+    if mode not in ('browser', 'computer'):
+        return {'ok': False, 'error': 'Choose This browser or A computer.'}
+    def save():
+        with _SETTINGS_LOCK:
+            if os.environ.get('CALLREC_CAPTURE_MODE'):
+                return {'ok': False, 'error': 'Capture choice is pinned by CALLREC_CAPTURE_MODE.'}
+            temporary = None
+            try:
+                saved = json.loads(_SETTINGS_FILE.read_text()) if _SETTINGS_FILE.exists() else {}
+                if not isinstance(saved, dict):
+                    raise ValueError('Settings must be an object.')
+                saved['capture_mode'] = mode
+                with tempfile.NamedTemporaryFile(mode='w', dir=_SETTINGS_FILE.parent,
+                                                 prefix='.capture-mode-', delete=False) as stream:
+                    temporary = Path(stream.name)
+                    json.dump(saved, stream)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, _SETTINGS_FILE)
+                return _capture_host_payload()
+            except (OSError, ValueError):
+                return {'ok': False, 'error': 'Could not save capture choice. Previous choice retained.'}
+            finally:
+                if temporary:
+                    temporary.unlink(missing_ok=True)
+    return await asyncio.to_thread(save)
+
+
+@router.post('/browser-audio')
+async def post_browser_audio(request: Request) -> dict:
+    """Hermes authenticates the plugin namespace before dispatching this route.
+
+    SDK upload is multipart `file`. Bound the entire body before multipart parsing;
+    ignore client filename and any extra fields. Never accept a destination path.
+    """
+    from recording_library import MAX_BROWSER_BYTES
+    limit = MAX_BROWSER_BYTES + 65536
+    try:
+        length = request.headers.get('content-length')
+        if length and (int(length) < 0 or int(length) > limit):
+            return {'ok': False, 'error': 'Upload exceeds 32 MiB.'}
+        content = bytearray()
+        async for chunk in request.stream():
+            if len(content) + len(chunk) > limit:
+                return {'ok': False, 'error': 'Upload exceeds 32 MiB.'}
+            content.extend(chunk)
+        request._body = bytes(content)
+        async with request.form(max_files=1, max_fields=0) as form:
+            audio = form.get('file')
+            if audio is None or not hasattr(audio, 'read'):
+                return {'ok': False, 'error': 'A microphone audio file is required.'}
+            data = await audio.read(MAX_BROWSER_BYTES + 1)
+            result = await asyncio.to_thread(RecordingLibrary().store_browser, data, audio.content_type or '')
+        if result.get('ok'):
+            result['transcription'] = {'state': 'available' if (await asyncio.to_thread(browser_transcription)).get('ok') else 'unavailable',
+                                       'detail': 'Use Transcribe for the saved single voice mix. Live transcription unavailable.'}
+        return result
+    except Exception:
+        return {'ok': False, 'error': 'Invalid microphone upload. Use one supported audio file, maximum 32 MiB.'}
+
+
 @router.get("/config")
 async def get_config() -> dict:
     return await asyncio.to_thread(_config_payload)
@@ -518,6 +608,9 @@ async def get_status() -> dict:
 
 @router.post("/start")
 async def post_start(body: dict | None = None) -> dict:
+    if settings().get('capture_mode') == 'browser':
+        return {'ok': False, 'error': 'This browser is selected. Press Record in the browser to allow microphone access; computer capture will not be started.'}
+    ensure_watcher()
     live = bool((body or {}).get("live"))
     return await asyncio.to_thread(lambda: recorder().start(live=live))
 
@@ -607,7 +700,9 @@ async def get_transcript(lines: int = 60) -> dict:
 async def get_recordings(limit: int = 20) -> dict:
     def _list() -> dict:
         library = RecordingLibrary()
-        items = library.recordings(recorder(), limit)
+        cfg = settings()
+        selected = Recorder(host=cfg["host"] or None, recordings_dir=cfg["recordings_dir"]) if cfg.get("capture_mode") == "browser" else recorder()
+        items = library.recordings(selected, limit)
         library.schedule_retry()
         return {"ok": True, "items": items}
     return await asyncio.to_thread(_list)

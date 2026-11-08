@@ -1,153 +1,44 @@
-# hermes-call-recorder
+# Hermes call recorder
 
-Records both sides of a call as one two-track file and transcribes it locally with
-speaker labels. **Linux (PipeWire)** and **Windows (WASAPI loopback)**; no virtual
-cable, no driver, no admin rights.
+Record the microphone in this browser, or microphone and system audio on a configured computer. Finished recordings and transcripts appear in the Call Recorder pane.
 
-![The composer with the live transcript strip and the recorder pane](docs/screenshots/composer-and-live-strip.png)
-
-## Install
+## Quick start
 
 ```bash
 hermes plugins install jacebenson/hermes-hackathon-call-recorder
 hermes plugins enable call-recorder
 ```
 
-## What it needs
+Open Call Recorder, check the audio-source sentence, and press **Record**. Press **Stop** to save. New installs select **This browser**. Existing explicit computer settings stay selected. Switching audio source preserves configured machines, titles and library layout.
 
-Remote recording needs an `ssh` client on the Hermes host. On the machine being recorded:
+## Two audio locations
 
-| | |
-| --- | --- |
-| Linux | PipeWire with `pactl` and a `systemd --user` session, plus `ffmpeg` |
-| Windows | Python 3, `python -m pip install pyaudiowpatch`, `ffmpeg` on PATH, and someone logged in |
-| Transcription (optional) | `faster-whisper` on that same machine, otherwise recordings stay untranscribed |
+- **This browser** says "Microphone on this device only". It requests microphone permission only when you press Record. It records one voice mix, not speaker-separated audio, and does not record system audio. Live transcription is unavailable. HTTPS or localhost, microphone permission, and a browser supporting `getUserMedia` and MediaRecorder with WebM, Ogg or MP4 audio are required. The backend needs `ffmpeg` and `ffprobe`. No SSH setup is needed for browser capture.
+- **A computer** says "Microphone and system audio on <host>". An empty computer host means the Hermes backend, not necessarily the device displaying the browser. Advanced settings and diagnostics contains the explicit host override, recent machines, connection test and settings link. Remote capture needs existing passwordless SSH from the backend. Linux needs PipeWire, `pactl`, `ffmpeg` and a `systemd --user` session. Windows needs an interactive logged-in desktop, Python, `pyaudiowpatch` and `ffmpeg`. Native macOS computer capture is not implemented. Existing computer live transcription and two-track capture remain available.
 
-Windows gives a background session no audio, so capture runs in the logged-in desktop:
-the plugin launches it there itself and refuses when nobody is in. macOS capture is not
-implemented.
+Browser display/tab audio capture is not implemented here. Browser support for display audio varies; microphone capture alone is not OS-audio capture. The plugin does not identify which physical device you use from a remote backend's hostname.
 
-```bash
-# one-time Whisper runtime, Linux
-uv venv ~/whisper/.venv && ~/whisper/.venv/bin/python -m pip install faster-whisper
-```
+## Storage and transcription
 
-Automatic Linux detection uses `tiny.en` with CPU int8 when no CUDA libraries are
-found. GPU machines keep `small.en` or their detected local model with CUDA float16.
-The pane's whisper line names the selected model and device. The first run downloads
-the selected model if it is not cached. An explicit `whisper_model` override is preserved.
+Browser audio uploads through Hermes's authenticated plugin API after Stop. Uploads are limited to 32 MiB and two hours, validated and converted to a one-track `.mkv` in `$HERMES_HOME/plugin-data/call-recorder/browser-<id>/`. Permission, device or upload failures show an error. There is no silent device fallback or automatic upload retry. Cancel, closing a recorder contribution, changing gateway/profile, or disabling the plugin releases the microphone and discards unfinished audio. Do not close the page before saving finishes.
 
-## Using it
+Computer recordings remain on their capture machine. Remote files and transcript sidecars are copied over existing SSH to the backend library; source files are retained. Local computer files are indexed without moving them. Backend history remains listed when the selected capture machine is offline. Deleting a copied computer recording also deletes its source; an unreachable source prevents deletion. Browser deletion affects only its backend copy.
 
-Click `rec` by the composer. The chip shows a red dot and a timer, and turns **amber**
-after thirty seconds of mic silence. Every stop path, including the pane and auto-stop,
-saves usable live speech as the finished transcript when transcription is enabled.
-If live speech is missing or cannot be saved, it queues a Whisper archive re-pass.
-The toast names the pass that wrote the transcript, or reports when both failed.
-Choose `Transcribe` in the pane to replace a transcript with a cleaner Whisper re-pass.
+Expand a recording to rename, delete, read a transcript, insert a transcript into the composer, or choose **Transcribe**. Browser transcription uses backend Whisper if available, labels only a single voice mix, and otherwise reports unavailable while keeping audio saved. Computer transcription uses the existing live/final pass. Install `faster-whisper` on the relevant machine for transcription. Whisper may download its selected model if it is not cached. No cloud transcription provider or browser live ASR is used.
 
-Auto-start is **off by default**. Turn it on and a call is detected as *a known call app
-playing audio and capturing the mic at the same time*; playback alone is not a call. With
-auto-stop on, the recording ends three minutes after the call disappears, so a screen
-share or a dropped window does not truncate it.
+## Privacy and side effects
 
-Files stay on the machine that recorded them: `call-YYYYMMDD-HHMMSS.mkv` with a `system`
-and a `mic` track, plus `call-YYYYMMDD-HHMMSS.transcript.md`. Live transcription writes
-`call-YYYYMMDD-HHMMSS.live.txt` beside the recording. Its timestamps mark chunk completion,
-not precise word timing. Two tracks, not a mix, make speaker labels possible without
-diarisation. The pane lists recordings by title or date, opens a transcript, puts one in
-the composer, or deletes the recording and both transcript files. Expand a recording and choose
-`Rename`. Enter saves, Escape cancels, and an empty title restores the date. Titles are
-trimmed, limited to 120 characters, and cannot contain control characters. They stay in
-`.titles.json` beside the recordings, never in media filenames. Naming uses `python3`
-on Linux or `python` on Windows, independent of Whisper. Click the live transcript
-header to collapse or expand it. That choice lasts for the desktop session.
-
-Four optional settings cover which machine, where to save, transcribe or not, and stop
-when the call ends. Leave `host` empty to record on the machine Hermes runs on.
-The pane identifies it as `local (hostname)` using the backend's hostname, not the
-laptop displaying the desktop. `/config` also reports that backend's operating system.
-If the desktop uses a remote gateway without audio devices, set `host` to the audio
-machine's SSH host. A configured remote host keeps the name you entered.
-To record somewhere else, name that machine and make sure Hermes can `ssh` to it
-without a password. There is no host discovery.
-
-The machine control beside Start/Stop switches capture without opening Settings.
-Choose one of the five most recently used machines, enter a new hostname or SSH
-alias, or choose `This machine` to clear `host`. Stop recording before switching.
-A failed save shows an error and keeps the previous selection. Settings still
-holds the recording folder, transcription and auto-stop options.
-
-`GET /capture-host` reads the current choice and recent machines;
-`POST /capture-host` accepts `{"host": "framework"}`, with `""` or `"local"` for
-local capture. Names are trimmed and must be plausible hostnames without control
-characters. Selection and recent machines are saved atomically in `settings.json`
-beside `plugin.yaml`. The pane choice overrides the current Settings host value;
-a later different host value in Settings takes precedence again. `CALLREC_HOST`
-remains an override and prevents pane writes until removed.
-
-For example, Hermes running on a server called `hermes-host`, with the microphone on a
-laptop called `laptop`, means `host` is `laptop`, and `hermes-host` needs a working SSH
-key to `laptop`. From a shell on the machine running Hermes, run:
-
-```bash
-ssh laptop true
-```
-
-It must return without asking for a password. In the pane, press `Test` next to
-`Check again` for the in-app check. It checks the connection, OS, audio sources,
-ffmpeg and where Whisper lives. Each step reports ok or failed. Failures appear
-first. A missing Whisper runtime means recording only, not a broken connection.
-
-## What it touches
-
-* Shell commands run locally or over SSH: `pactl`, `ffmpeg`, `systemctl --user`
-  on Linux; `powershell`, `ffprobe` and scheduled tasks on Windows. The pane reads
-  live transcripts through the plugin API over SSH for remote hosts. The recording
-  machine opens no HTTP viewer or listening port. The plugin does not read SSH
-  configuration or keys. `ssh` itself uses your existing key.
-* Helper scripts are written to `~/.local/share/call-recorder/` on Linux or
-  `%USERPROFILE%\.call-recorder\` on Windows. Windows rewrites capture helpers on
-  every start. Linux re-checks transcription helpers on detection, cached for five
-  minutes. The Windows Test action writes a temporary audio probe, runs it as an
-  interactive scheduled task, then removes the task and temporary files.
-* Background capture uses a `systemd --user` unit on Linux or a scheduled task and
-  Python process on Windows. Capture stops with the recording. A watcher thread
-  polls for calls when auto-start or auto-stop is enabled.
-* Transcription runs on the capture machine before upload, or on the backend for
-  stored recordings, with no cloud transcription, telemetry or stored credentials.
-  Whisper fetches a model if none is present.
-  Files created include the `.mkv`, `.transcript.md`, `.live.txt`, `.titles.json`
-  and small state files. After stop and transcript finalization, remote recordings
-  and their sidecars are copied over SSH to the Hermes backend at
-  `$HERMES_HOME/plugin-data/call-recorder/<machine>/`, defaulting to
-  `~/.hermes/plugin-data/call-recorder/<machine>/`. Sources stay on the capture
-  machine. Local capture is indexed without copying its files.
-* The Recordings list combines backend history with files only on the selected
-  capture machine, newest first. Each row names the capture machine and says
-  `stored` or `remote-only`. Failed copies show their error and retry on list
-  refresh. Per-file receipts prevent successful copies from repeating, including
-  after a backend restart. Stored actions use the backend copy, so a new Whisper
-  pass on a stored recording requires Whisper on the backend. Deleting a stored
-  recording also removes its original capture file and sidecars. If that machine
-  cannot be reached, deletion reports the failure and keeps the stored copy.
-
-## Limits
-
-- macOS capture is not implemented.
-- English transcription by default; one recording at a time.
-- A live-voice session in the same browser holds the mic and plays audio, so it looks
-  like a call. Leave auto-start off if that matters.
+Obtain consent before recording. Audio and transcripts are sensitive and are stored on the configured machines and backend, not sent to a transcription service. They are not written to application logs. Browser permission is not acquired in the background. Native capture writes helper scripts and recording state, uses Linux user services or Windows interactive scheduled tasks, and may poll call activity when native auto-start/auto-stop is enabled. Auto-start is off by default. Titles live in `.titles.json`, not media filenames. No SSH keys or credentials are read by the plugin; SSH uses your existing configuration.
 
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests
+python -m unittest discover -s tests
 node --experimental-vm-modules --no-warnings tests/desktop.test.mjs
+node tests/browser-capture.test.mjs
 node --check desktop/plugin.js
-hermes plugins validate .
+hermes plugins validate . --install-deps
+git diff --check
 ```
 
-## License
-
-MIT, see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

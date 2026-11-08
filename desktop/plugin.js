@@ -123,7 +123,107 @@ const useTranscriptionNotices = (st, qc) => {
   }, [st.transcriptions, qc])
 }
 
+export function createBrowserCapture(ctx, env = globalThis) {
+  const maximum = 32 * 1024 * 1024
+  let state = { phase: 'idle', error: '', message: '' }, generation = 0
+  let stream = null, recorder = null, timer = null, chunks = [], bytes = 0, stopping = null
+  const listeners = new Set()
+  const publish = (value) => { state = { ...state, ...value }; for (const fn of listeners) fn(state) }
+  const release = () => {
+    env.clearTimeout(timer); timer = null
+    if (stream) for (const track of stream.getTracks()) track.stop()
+    stream = null
+  }
+  const cancel = () => {
+    generation++
+    if (recorder) {
+      recorder.onstop = null; recorder.ondataavailable = null; recorder.onerror = null
+      if (recorder.state !== 'inactive') { try { recorder.stop() } catch {} }
+    }
+    recorder = null; release(); chunks = []; bytes = 0
+    if (stopping) { stopping(); stopping = null }
+    publish({ phase: 'idle', error: '', message: '' })
+  }
+  const fail = (error) => { cancel(); publish({ phase: 'error', error, message: '' }) }
+  const start = async () => {
+    if (['pending', 'recording', 'uploading', 'stopping'].includes(state.phase)) return
+    const current = ++generation
+    publish({ phase: 'pending', error: '', message: 'Waiting for microphone permission…' })
+    try {
+      if (!env.isSecureContext) throw Error('Microphone needs HTTPS or localhost. Open Hermes on a secure origin.')
+      if (!env.navigator?.mediaDevices?.getUserMedia || !env.MediaRecorder?.isTypeSupported) throw Error('Microphone recording is not supported here. Use a current browser with MediaRecorder, or choose A computer.')
+      const mimeType = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4'].find(t => env.MediaRecorder.isTypeSupported(t))
+      if (!mimeType) throw Error('No supported microphone audio format. Use a current browser or choose A computer.')
+      // Called directly in the Record click handler, never in an effect or timer.
+      const acquired = await env.navigator.mediaDevices.getUserMedia({ audio: true })
+      if (current !== generation) { for (const t of acquired.getTracks()) t.stop(); return }
+      stream = acquired; chunks = []; bytes = 0
+      recorder = new env.MediaRecorder(stream, { mimeType, audioBitsPerSecond: 64000 })
+      recorder.ondataavailable = e => {
+        if (current !== generation || !e.data?.size) return
+        bytes += e.data.size
+        if (bytes > maximum) { fail('Recording exceeded 32 MiB. Record shorter sections. Nothing was uploaded.'); return }
+        chunks.push(e.data)
+      }
+      recorder.onerror = () => fail('Microphone recording failed. Check your device and press Record again. Nothing was uploaded.')
+      for (const t of stream.getTracks()) t.addEventListener?.('ended', () => {
+        if (current === generation && state.phase === 'recording') fail('Microphone disconnected. Recording cancelled; choose a device before starting again.')
+      })
+      recorder.start(1000)
+      publish({ phase: 'recording', started: Date.now(), message: 'Microphone on this device only. Live transcription unavailable.' })
+      timer = env.setTimeout(() => { void stop() }, 2 * 60 * 60 * 1000)
+    } catch (e) {
+      if (current !== generation) return
+      fail(e?.name === 'NotAllowedError' ? 'Microphone permission denied. Allow microphone access in browser site settings, then press Record.'
+        : e?.name === 'NotFoundError' ? 'No microphone found. Connect a microphone, then press Record.'
+        : e?.message || 'Microphone unavailable. Check browser permissions and your audio device.')
+    }
+  }
+  const stop = () => {
+    if (state.phase !== 'recording' || !recorder) return Promise.resolve()
+    const current = generation, finished = recorder
+    publish({ phase: 'stopping', message: 'Finishing microphone recording…' })
+    const done = new Promise(resolve => { stopping = resolve })
+    const resolveStop = stopping
+    finished.onstop = async () => {
+      release(); recorder = null
+      if (current !== generation) return
+      const blob = new env.Blob(chunks, { type: finished.mimeType }); chunks = []
+      if (!blob.size || blob.size > maximum) { fail('No usable audio, or recording exceeds 32 MiB. Nothing was uploaded.'); return }
+      publish({ phase: 'uploading', message: 'Saving microphone audio to the Hermes backend…' })
+      try {
+        const data = await blob.arrayBuffer()
+        if (current !== generation) return
+        const result = await ctx.rest('/browser-audio', { method: 'POST',
+          upload: { filename: 'microphone', contentType: blob.type, bytes: data }, timeoutMs: 180000 })
+        if (current !== generation) return
+        if (!result?.ok) throw Error(result?.error || 'Upload failed')
+        publish({ phase: 'saved', result, message: 'Audio saved on the backend. ' +
+          (result.transcription?.state === 'available' ? 'Use Transcribe for a single voice mix.' : 'Backend Whisper unavailable; audio saved without transcript.') })
+      } catch (e) {
+        if (current === generation) fail('Could not save microphone audio: ' + (e?.message || 'request failed') + '. No automatic retry or device fallback.')
+      } finally { resolveStop(); if (stopping === resolveStop) stopping = null }
+    }
+    try { finished.stop(); release() } catch { fail('Could not finish microphone recording. Nothing was uploaded.') }
+    return done
+  }
+  return { get: () => state, subscribe: fn => { listeners.add(fn); return () => listeners.delete(fn) }, start, stop, cancel,
+    active: () => ['pending', 'recording', 'stopping', 'uploading'].includes(state.phase) }
+}
+
+function useBrowserCapture(ctx) {
+  const [value, setValue] = useState(() => ctx.browserCapture.get())
+  useEffect(() => {
+    const off = ctx.browserCapture.subscribe(setValue)
+    return () => { off(); ctx.browserCapture.cancel() }
+  }, [ctx])
+  return value
+}
+
 function ComposerRecordButton({ ctx }) {
+  const browser = useBrowserCapture(ctx)
+  const choice = useQuery({ queryKey: [ID, 'capture-host'], queryFn: () => ctx.rest('/capture-host'), retry: false })
+  const browserMode = choice.data?.capture_mode === 'browser' || ctx.browserCapture.active()
   const qc = useQueryClient()
   // The click flips the button immediately; the request catches up. Starting a
   // remote recording takes a second or two, and a button that ignores you for
@@ -133,7 +233,7 @@ function ComposerRecordButton({ ctx }) {
   const st = status.data || {}
   useTranscriptionNotices(st, qc)
   const recording = !!st.recording
-  const shownRecording = pending === 'start' ? true : pending === 'stop' ? false : recording
+  const shownRecording = browserMode ? browser.phase === 'recording' : pending === 'start' ? true : pending === 'stop' ? false : recording
   useTicker(shownRecording && !pending)
   const elapsed = elapsedNow(status)
 
@@ -155,7 +255,11 @@ function ComposerRecordButton({ ctx }) {
   }, [pending])
 
   const toggle = async () => {
-    if (pending) return
+    if (browserMode) {
+      if (browser.phase === 'recording') return ctx.browserCapture.stop()
+      return ctx.browserCapture.start()
+    }
+    if (!choice.data || pending) return
     const stopping = recording
     setPending(stopping ? 'stop' : 'start')
     try {
@@ -198,8 +302,8 @@ function ComposerRecordButton({ ctx }) {
     type: 'button',
     onClick: toggle,
     title: !shownRecording
-      ? 'Record this call (system audio + mic)'
-      : micSilent
+      ? browserMode ? 'Microphone on this device only. System audio is not recorded.' : 'Microphone and system audio on ' + (choice.data?.host_label || 'the configured computer')
+      : browserMode ? 'Stop microphone recording' : micSilent
         ? 'Microphone is silent (' + silentFor + 's) - are you muted? Click to stop.'
         : 'Stop recording (' + clock(elapsed) + ')',
     className: cn(
@@ -231,10 +335,13 @@ function ComposerRecordButton({ ctx }) {
 }
 
 function RecordChip({ ctx }) {
+  const browser = useBrowserCapture(ctx)
+  useTicker(browser.phase === 'recording')
   const status = useQuery(statusQuery(ctx))
   const st = status.data || {}
   useTicker(!!st.recording)
   const elapsed = elapsedNow(status)
+  if (browser.phase === 'recording') return jsx('div', { children: 'REC mic ' + clock(Math.floor((Date.now() - browser.started) / 1000)) })
   if (!st.recording)
     return jsxs('div', {
       className: 'flex h-full items-center gap-1 px-1.5 text-[0.6875rem] text-(--ui-text-quaternary)',
@@ -295,6 +402,7 @@ const liveSummary = (lines, on) => lines.length
 
 function RecorderPane({ ctx }) {
   const qc = useQueryClient()
+  const browser = useBrowserCapture(ctx)
   const [busy, setBusy] = useState(false)
   const [layout, setLayout] = useState(readLayout)
   useEffect(() => {
@@ -332,11 +440,17 @@ function RecorderPane({ ctx }) {
     retry: false
   })
   const selectedHost = captureHost.data || {}
+  const browserMode = selectedHost.capture_mode === 'browser' || ctx.browserCapture.active()
+  const browserActive = ctx.browserCapture.active()
+  useEffect(() => {
+    if (browser.phase === 'saved') qc.invalidateQueries({ queryKey: [ID, 'recordings'] })
+  }, [browser.phase, qc])
   const st = status.data || {}
   const cfg = config.data || {}
   useTranscriptionNotices(st, qc)
-  const recording = !!st.recording
-  const liveOn = recording && !!st.live
+  const recording = !!st.recording || (browserMode && browser.phase === 'recording')
+  const liveOn = !browserMode && recording && !!st.live
+  useTicker(browserMode && browser.phase === 'recording')
 
   const live = useQuery({
     queryKey: [ID, 'live'],
@@ -372,7 +486,7 @@ function RecorderPane({ ctx }) {
           qc.setQueryData([ID, 'recordings'], (old) => old
             ? { ...old, items: (old.items || []).map((r) => recordingKey(r) === recordingKey(body) ? { ...r, title: res.title } : r) } : old)
         }
-        if (path === '/capture-host') {
+        if (path === '/capture-host' || path === '/capture-mode') {
           qc.setQueryData([ID, 'capture-host'], () => res)
           // The recordings list belongs to the machine that was selected when it was
           // fetched, so a new host must drop the cached list instead of showing it.
@@ -439,7 +553,7 @@ function RecorderPane({ ctx }) {
                     ? 'Recorder unreachable'
                     : 'Idle'
               }),
-              recording ? jsx(Badge, { children: clock(st.elapsed) }) : null
+              recording ? jsx(Badge, { children: clock(browserMode ? Math.floor((Date.now() - browser.started) / 1000) : st.elapsed) }) : null
             ]
           }),
           jsx('span', {
@@ -448,12 +562,35 @@ function RecorderPane({ ctx }) {
           })
         ]
       }),
-      status.isError
+      !browserMode && status.isError
         ? jsx('div', {
             className: 'text-[0.6875rem] leading-snug text-(--ui-text-quaternary)',
             children: 'This window is talking to a Hermes backend that is not answering for this plugin. If the plugin is installed somewhere else, open Settings and check where it is enabled.'
           })
         : null,
+      jsx('label', { children: jsxs('span', { children: ['Audio source ', jsx('select', {
+        'aria-label': 'Audio source', value: browserMode ? 'browser' : 'computer',
+        disabled: busy || recording || browserActive || !captureHost.data,
+        onChange: e => call('/capture-mode', { capture_mode: e.target.value }),
+        children: [jsx('option', { value: 'browser', children: 'This browser' }), jsx('option', { value: 'computer', children: 'A computer' })]
+      })] }) }),
+      captureHost.isError ? jsx('div', { role: 'alert', children: 'Cannot load audio source from the Hermes backend. Check the plugin connection and reopen the pane.' }) : null,
+      jsx('div', { 'data-capture-source': true, children: !captureHost.data ? 'Loading audio source…' : browserMode
+        ? 'Microphone on this device only' : 'Microphone and system audio on ' + (selectedHost.host_label || cfg.host_label || 'the backend computer') }),
+      browserMode ? jsx('div', { className: 'text-[0.6875rem] text-(--ui-text-secondary)',
+        children: 'One voice mix, not speaker-separated. No system audio. Live transcription unavailable. Audio uploads to the Hermes backend when stopped.' }) : null,
+      browserMode && (browser.error || browser.message) ? jsx('div', { role: browser.error ? 'alert' : 'status',
+        className: 'text-[0.6875rem]', children: browser.error || browser.message }) : null,
+      jsxs('div', { className: 'flex items-center gap-2', children: [
+        jsx(Button, { size: 'sm', disabled: busy || recording || browserActive || !captureHost.data,
+          onClick: () => browserMode ? ctx.browserCapture.start() : call('/start', { live: true }), children: 'Record' }),
+        jsx(Button, { size: 'sm', variant: 'secondary', disabled: busy || (browserMode ? browser.phase !== 'recording' : !recording),
+          onClick: () => browserMode ? ctx.browserCapture.stop() : call('/stop'), children: 'Stop' }),
+        browserMode && ['pending', 'recording'].includes(browser.phase) ? jsx(Button, { size: 'sm', variant: 'ghost',
+          onClick: () => ctx.browserCapture.cancel(), children: 'Cancel' }) : null
+      ] }),
+      jsxs('details', { children: [jsx('summary', { children: 'Advanced settings and diagnostics' }),
+        ...(!browserMode ? [
       cfg.why
         ? jsx('div', {
             className: 'text-[0.6875rem] leading-snug text-(--ui-text-quaternary)',
@@ -483,24 +620,11 @@ function RecorderPane({ ctx }) {
         className: 'flex items-center gap-2',
         children: [
           jsx(Button, {
-            size: 'sm',
-            disabled: busy || recording,
-            onClick: () => call('/start', { live: true }),
-            children: 'Start'
-          }),
-          jsx(Button, {
-            size: 'sm',
-            variant: 'secondary',
-            disabled: busy || !recording,
-            onClick: () => call('/stop'),
-            children: 'Stop'
-          }),
-          jsx(Button, {
             size: 'sm', variant: 'secondary',
             'aria-label': 'Capture machine',
             'aria-expanded': hostMenu,
             title: recording ? 'Stop recording before switching machines' : 'Switch capture machine',
-            disabled: busy || recording,
+            disabled: busy || recording || browserActive,
             className: 'min-w-0 max-w-40 truncate',
             onClick: () => setHostMenu(!hostMenu),
             children: selectedHost.host_label || cfg.host_label || cfg.host || 'Capture machine…'
@@ -517,13 +641,13 @@ function RecorderPane({ ctx }) {
         onKeyDown: (e) => { if (e.key === 'Escape') setHostMenu(false) },
         children: [
           jsx(Button, {
-            size: 'sm', variant: 'ghost', disabled: busy || recording,
+            size: 'sm', variant: 'ghost', disabled: busy || recording || browserActive,
             title: 'Record on the machine running the Hermes backend',
             onClick: () => call('/capture-host', { host: '' }),
             children: 'This machine'
           }),
           ...(selectedHost.recent_hosts || []).map((machine) => jsx(Button, {
-            size: 'sm', variant: 'ghost', disabled: busy || recording,
+            size: 'sm', variant: 'ghost', disabled: busy || recording || browserActive,
             onClick: () => call('/capture-host', { host: machine }),
             children: machine
           }, machine)),
@@ -537,11 +661,11 @@ function RecorderPane({ ctx }) {
               jsx(Input, {
                 autoFocus: true, 'aria-label': 'New capture machine',
                 placeholder: 'Hostname or SSH alias', maxLength: 253,
-                value: hostDraft, disabled: busy || recording,
+                value: hostDraft, disabled: busy || recording || browserActive,
                 onChange: (e) => setHostDraft(e.target.value)
               }),
               jsx(Button, {
-                type: 'submit', size: 'sm', disabled: busy || recording || !hostDraft.trim(),
+                type: 'submit', size: 'sm', disabled: busy || recording || browserActive || !hostDraft.trim(),
                 children: 'Use'
               })
             ]
@@ -608,6 +732,8 @@ function RecorderPane({ ctx }) {
           }, step.id))
         ]
       }) : null,
+        ] : [jsx('div', { className: 'text-[0.6875rem]', children: cfg.transcription_detail || 'Checking backend Whisper…' })])
+      ] }),
       jsx('div', { className: 'h-px bg-(--ui-stroke-secondary)' }),
       jsx('button', {
         type: 'button',
@@ -615,9 +741,9 @@ function RecorderPane({ ctx }) {
         'aria-expanded': !collapsed,
         onClick: toggleLive,
         className: 'truncate text-left text-[0.6875rem] text-(--ui-text-quaternary)',
-        children: (collapsed ? '▸ Live · ' : '▾ Live') + (collapsed ? liveSummary(lines, liveOn) : '')
+        children: browserMode ? 'Live transcription unavailable for browser microphone' : (collapsed ? '▸ Live · ' : '▾ Live') + (collapsed ? liveSummary(lines, liveOn) : '')
       }),
-      collapsed ? null : jsx('div', {
+      collapsed || browserMode ? null : jsx('div', {
         ref: tailRef,
         className:
           'min-h-0 flex-1 overflow-y-auto rounded border border-(--ui-stroke-secondary) p-2 font-mono text-[0.6875rem] leading-relaxed',
@@ -671,7 +797,7 @@ function RecorderPane({ ctx }) {
                             jsx('span', { className: 'block truncate', children: r.title || friendlyName(r.name) }),
                             jsx('span', {
                               className: 'block truncate text-(--ui-text-quaternary)',
-                              children: (r.stored ? 'remote on ' : 'local on ') + (r.machine || cfg.host_label || cfg.host || 'local')
+                              children: r.capture_mode === 'browser' ? 'Browser microphone · single voice mix · stored on backend' : (r.stored ? 'remote on ' : 'local on ') + (r.machine || cfg.host_label || cfg.host || 'local')
                             })
                           ]
                         }),
@@ -880,6 +1006,14 @@ export default {
   id: ID,
   name: 'Call Recorder',
   register(ctx) {
+    ctx = { ...ctx, browserCapture: createBrowserCapture(ctx) }
+    const unsubscribers = ['connectionId', 'profile', 'gateway'].map(key => host.state?.[key]?.listen(() => {
+      if (ctx.browserCapture.active()) {
+        ctx.browserCapture.cancel()
+        host.notify({ kind: 'error', message: 'Microphone recording cancelled because the backend connection changed. Unfinished audio was not uploaded.' })
+      }
+    })).filter(Boolean)
+    ctx.onDispose?.(() => { ctx.browserCapture.cancel(); for (const off of unsubscribers) off() })
     ctx.register({
       id: 'call-recorder-composer',
       area: 'composer.leading',
