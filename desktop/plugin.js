@@ -128,7 +128,9 @@ function ComposerRecordButton({ ctx }) {
         ? 'Microphone is silent (' + silentFor + 's) - are you muted? Click to stop.'
         : 'Stop recording (' + clock(elapsed) + ')',
     className: cn(
-      'inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[0.6875rem] transition-colors',
+      // Stacked on purpose: the dot above the label costs half the horizontal room.
+      'inline-flex h-8 w-7 flex-col items-center justify-center gap-[2px] rounded-md',
+      'text-[0.5625rem] leading-none transition-colors',
       shownRecording
         ? micSilent
           ? 'bg-amber-500/10 text-amber-500'
@@ -139,7 +141,7 @@ function ComposerRecordButton({ ctx }) {
     children: [
       jsx('span', {
         className: cn(
-          'block h-2 w-2 rounded-full',
+          'block h-1.5 w-1.5 rounded-full',
           micSilent
             ? 'bg-amber-500'
             : shownRecording
