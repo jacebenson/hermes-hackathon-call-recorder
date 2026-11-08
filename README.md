@@ -86,10 +86,10 @@ when the call ends. An empty machine field picks a machine on a call, else one w
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests
+python3 -m unittest discover -s tests                       # 66 tests
 node --experimental-vm-modules --no-warnings tests/desktop.test.mjs
 node --check desktop/plugin.js
-hermes plugins validate .
+hermes plugins validate . --install-deps
 ```
 
 ## License
