@@ -399,7 +399,7 @@ function RecorderPane({ ctx }) {
           }),
           jsx('span', {
             className: 'text-[0.6875rem] text-(--ui-text-quaternary)',
-            children: recording ? mb(st.bytes) : st.host || cfg.host || ''
+            children: recording ? mb(st.bytes) : cfg.host_label || st.host || cfg.host || ''
           })
         ]
       }),
@@ -431,7 +431,7 @@ function RecorderPane({ ctx }) {
             (cfg.transcription_mode === 'auto' ? 'found ' : '') +
             (cfg.transcription_detail || 'available')
           : 'whisper: not found on ' +
-            (cfg.host || 'that machine') +
+            (cfg.host_label || cfg.host || 'that machine') +
             ' - recording only'
       }),
       jsxs('div', {

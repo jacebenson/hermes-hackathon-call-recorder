@@ -18,6 +18,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import tempfile
 
 import numpy as np
 from faster_whisper import WhisperModel
@@ -34,6 +35,25 @@ def track_to_raw(src: pathlib.Path, index: int, dest: pathlib.Path) -> pathlib.P
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(src), "-map", f"0:a:{index}",
                     "-ac", "1", "-ar", "16000", "-f", "s16le", str(dest)], check=True)
     return dest
+
+
+def write_transcript(src: pathlib.Path, rows: list) -> None:
+    """Publish a complete document, never a header awaiting its segment lines."""
+    minutes = rows[-1][0] / 60 if rows else 0
+    markdown = f"# {src.name}\n\n{minutes:.1f} minutes, {len(rows)} segments\n\n"
+    for start, who, text in rows:
+        markdown += f"**[{int(start // 60):02d}:{int(start % 60):02d}] {who}:** {text}\n\n"
+    out = src.with_suffix(".transcript.md")
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=out.parent,
+                                         prefix=out.name + ".", delete=False) as fh:
+            temporary = pathlib.Path(fh.name)
+            fh.write(markdown)
+        os.replace(temporary, out)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def main() -> int:
@@ -72,11 +92,7 @@ def main() -> int:
         print(f"{who}: {counted} segments", flush=True)
 
     rows.sort(key=lambda row: row[0])
-    minutes = rows[-1][0] / 60 if rows else 0
-    with out.open("w") as fh:
-        fh.write(f"# {src.name}\n\n{minutes:.1f} minutes, {len(rows)} segments\n\n")
-        for start, who, text in rows:
-            fh.write(f"**[{int(start // 60):02d}:{int(start % 60):02d}] {who}:** {text}\n\n")
+    write_transcript(src, rows)
     print(f"WROTE {out} ({len(rows)} segments)", flush=True)
     return 0
 

@@ -162,4 +162,11 @@ assert.equal(checklist[1].props['data-check'], 'ssh')
 assert(nodes(tree).some(n => n.props.children === 'failed: Microphone missing.'))
 assert.equal(notes.length, 0)
 assert(button(tree, 'Check again'))
+for (const host of ['local (hermes-host)', 'audio-laptop']) {
+  reset(); data = { status: { host: 'local' }, config: { host: host === 'audio-laptop' ? host : 'local', host_label: host, transcription: true, transcription_detail: 'tiny.en on cpu' } }
+  tree = render('call-recorder-pane')
+  assert(nodes(tree).some(n => n.props.children === host))
+  assert(!nodes(tree).some(n => n.props.children === 'local'))
+  assert(nodes(tree).some(n => String(n.props.children).includes('tiny.en on cpu')))
+}
 console.log('Desktop behavior checks passed.')

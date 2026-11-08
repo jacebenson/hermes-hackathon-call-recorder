@@ -125,6 +125,11 @@ def transcribe_with_gpu(rec, source: str, out_path: pathlib.Path, python: str,
             raise ValueError("invalid segment count")
     except (ValueError, TypeError):
         return {"ok": False, "engine": ENGINE_GPU, "error": "Could not verify the Whisper transcript."}
+    code, document = rec.run("cat -- " + shlex.quote(str(out_path)))
+    declared = re.search(r"^\d+(?:\.\d+)? minutes, (\d+) segments$", document, re.MULTILINE)
+    if code != 0 or (declared and int(declared.group(1)) != segments):
+        return {"ok": False, "engine": ENGINE_GPU,
+                "error": "Whisper transcript segment count does not match its contents."}
     return {"ok": True, "engine": ENGINE_GPU, "path": str(out_path), "segments": segments}
 
 

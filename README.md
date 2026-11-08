@@ -32,6 +32,11 @@ implemented.
 uv venv ~/whisper/.venv && ~/whisper/.venv/bin/python -m pip install faster-whisper
 ```
 
+Automatic Linux detection uses `tiny.en` with CPU int8 when no CUDA libraries are
+found. GPU machines keep `small.en` or their detected local model with CUDA float16.
+The pane's whisper line names the selected model and device. The first run downloads
+the selected model if it is not cached. An explicit `whisper_model` override is preserved.
+
 ## Using it
 
 Click `rec` by the composer. The chip shows a red dot and a timer, and turns **amber**
@@ -60,6 +65,10 @@ header to collapse or expand it. That choice lasts for the desktop session.
 
 Four optional settings cover which machine, where to save, transcribe or not, and stop
 when the call ends. Leave `host` empty to record on the machine Hermes runs on.
+The pane identifies it as `local (hostname)` using the backend's hostname, not the
+laptop displaying the desktop. `/config` also reports that backend's operating system.
+If the desktop uses a remote gateway without audio devices, set `host` to the audio
+machine's SSH host. A configured remote host keeps the name you entered.
 To record somewhere else, name that machine and make sure Hermes can `ssh` to it
 without a password. There is no host discovery.
 

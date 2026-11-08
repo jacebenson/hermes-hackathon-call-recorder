@@ -168,7 +168,8 @@ class Recorder:
     # this user's runtime directory.
     SESSION_ENV = ('export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; '
                    'export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-'
-                   'unix:path=$XDG_RUNTIME_DIR/bus}"; ')
+                   'unix:path=$XDG_RUNTIME_DIR/bus}"; '
+                   'export PULSE_SERVER="${PULSE_SERVER:-unix:$XDG_RUNTIME_DIR/pulse/native}"; ')
 
     def shell_argv(self, command: str) -> list[str]:
         """The argv that runs *command* on this machine, quoted for ssh when remote."""
@@ -483,9 +484,17 @@ class Recorder:
     def start_live(self, model: str = "", ld_library_path: str = "") -> dict:
         if not self.live_available():
             return {"ok": False, "error": "live transcription is not configured"}
-        source = self.state().get("file")
+        state = self.state()
+        source = state.get("file")
         output = str(Path(source).with_suffix(".live.txt")) if source else f"{self.rec_dir()}/live.txt"
-        env = f" -E LIVE_OUT={shlex.quote(output)}"
+        cuda = bool(ld_library_path)
+        env = (f" -E LIVE_OUT={shlex.quote(output)}"
+               f" -E WHISPER_DEVICE={'cuda' if cuda else 'cpu'}"
+               f" -E WHISPER_COMPUTE={'float16' if cuda else 'int8'}"
+               " -E XDG_RUNTIME_DIR -E DBUS_SESSION_BUS_ADDRESS -E PULSE_SERVER")
+        for key, field in (("MON_SRC", "monitor"), ("MIC_SRC", "mic")):
+            if state.get(field):
+                env += f" -E {key}={shlex.quote(state[field])}"
         chosen_model = model or self.whisper_model
         if chosen_model:
             env += f" -E WHISPER_MODEL={shlex.quote(chosen_model)}"
@@ -686,8 +695,12 @@ def detect_transcription(host: str | None = None, timeout: int = 20) -> dict:
         if key in ("PY", "LIVE", "MODEL", "LD") and value.strip():
             found[key] = value.strip()
     python, script = found.get("PY", ""), found.get("LIVE", "")
+    libraries = found.get("LD", "").strip(":")
+    cuda = bool(libraries)
     return {"ok": bool(python and script), "python": python, "live_script": script,
-            "model": found.get("MODEL", ""), "ld_library_path": found.get("LD", "").strip(":"),
+            "model": (found.get("MODEL") or "small.en") if cuda else "tiny.en",
+            "device": "cuda" if cuda else "cpu",
+            "ld_library_path": libraries,
             "target": host or "local"}
 
 

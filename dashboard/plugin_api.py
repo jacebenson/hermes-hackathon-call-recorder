@@ -22,6 +22,8 @@ import asyncio
 import json
 import logging
 import os
+import platform
+import socket
 import threading
 import time
 from pathlib import Path
@@ -184,7 +186,8 @@ def resolved_transcription() -> dict:
     """
     cfg = settings()
     if cfg["python"] and cfg["live_script"]:
-        return {"ok": True, "mode": "configured", "python": cfg["python"],
+        found = detect_transcription(resolved_source()["host"] or None)
+        return {**found, "ok": True, "mode": "configured", "python": cfg["python"],
                 "live_script": cfg["live_script"], "target": resolved_source()["host"] or "local"}
     host = resolved_source()["host"]
     now = time.time()
@@ -218,7 +221,7 @@ def _transcribe(rec, path: str) -> dict:
     # for a device it does not have, which fails the whole run.
     cuda = bool(transc.get("ld_library_path"))
     env = {"LD_LIBRARY_PATH": transc.get("ld_library_path") or "",
-           "WHISPER_MODEL": transc.get("model") or "",
+           "WHISPER_MODEL": rec.whisper_model or transc.get("model") or "",
            "WHISPER_DEVICE": "cuda" if cuda else "cpu",
            "WHISPER_COMPUTE": "float16" if cuda else "int8"}
     return run_transcription(rec, path,
@@ -336,6 +339,8 @@ def _config_payload() -> dict:
     return {
         "ok": code == 0,
         "host": src["host"] or "local",
+        "backend_machine": {"hostname": socket.gethostname(), "os": platform.system().lower()},
+        "host_label": src["host"] or f"local ({socket.gethostname()})",
         "host_mode": src["mode"],
         "why": src["why"],
         "probe": src.get("probe") or {},
@@ -344,7 +349,10 @@ def _config_payload() -> dict:
         "transcription": bool(transc.get("ok")),
         "transcription_engine": "gpu" if transc.get("ok") else "unavailable",
         "transcription_mode": transc.get("mode"),
-        "transcription_detail": transc.get("python") or "not found on that machine",
+        "transcription_detail": (
+            f"{cfg['whisper_model'] or transc.get('model') or 'small.en'} on "
+            f"{transc.get('device') or ('cuda' if transc.get('ld_library_path') else 'cpu')}"
+            if transc.get("ok") else "not found on that machine"),
         "auto_start": cfg["auto_start"],
         "auto_stop_seconds": cfg["auto_stop_seconds"],
         "reachable": code == 0,
