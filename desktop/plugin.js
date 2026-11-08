@@ -452,8 +452,9 @@ function LiveStrip({ ctx }) {
     .slice(-3)
   return jsx('div', {
     className: cn(
-      'mx-auto mb-1 w-full max-w-3xl rounded-md border-l-2 border-red-500/70',
-      'bg-(--card) px-2 py-1 font-mono text-[0.6875rem] leading-snug'
+      // Full width so the timestamp sits at the left edge, not inset with the composer.
+      'mb-1 w-full rounded-md border-l-2 border-red-500/70',
+      'bg-(--card) py-1 pl-1.5 pr-2 font-mono text-[0.6875rem] leading-snug'
     ),
     children: lines.length
       ? lines.map((line, i) => {
@@ -463,9 +464,9 @@ function LiveStrip({ ctx }) {
             {
               className: 'flex gap-1.5',
               children: [
-                jsx('span', { className: 'shrink-0 text-(--ui-text-quaternary)', children: p.t }),
+                jsx('span', { className: 'w-14 shrink-0 text-(--ui-text-quaternary)', children: p.t }),
                 jsx('span', {
-                  className: cn('shrink-0 font-semibold', p.who === 'you' ? 'text-green-500' : 'text-blue-400'),
+                  className: cn('w-9 shrink-0 font-semibold', p.who === 'you' ? 'text-green-500' : 'text-blue-400'),
                   children: p.who
                 }),
                 jsx('span', { className: 'min-w-0 text-(--ui-text-secondary)', children: p.text })
