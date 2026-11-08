@@ -83,27 +83,6 @@ function ComposerRecordButton({ ctx }) {
     return () => clearTimeout(id)
   }, [pending])
 
-  // One time only: a fresh install has a bare `rec` button and no idea where the
-  // recordings go. Say it once, then never again.
-  useEffect(() => {
-    let shown = false
-    try {
-      shown = Boolean(ctx.storage.get('hintShown'))
-    } catch {
-      shown = true
-    }
-    if (shown) return
-    try {
-      ctx.storage.set('hintShown', true)
-    } catch {
-      /* storage unavailable: better to say it than to stay silent */
-    }
-    host.notify({
-      kind: 'info',
-      message: 'call-recorder: click rec while you are on a call - recordings and transcripts appear in the Call Recorder pane'
-    })
-  }, [ctx])
-
   const toggle = async () => {
     if (pending) return
     const stopping = recording
@@ -134,6 +113,25 @@ function ComposerRecordButton({ ctx }) {
       } else {
         await ctx.rest('/start', { method: 'POST', body: { live: true } })
         host.notify({ kind: 'info', message: 'call-recorder: recording' })
+        // First recording ever: say where things go, while it matters.
+        let seen = true
+        try {
+          seen = Boolean(ctx.storage.get('hintShown'))
+        } catch {
+          seen = false
+        }
+        if (!seen) {
+          try {
+            ctx.storage.set('hintShown', true)
+          } catch {
+            /* storage unavailable: still worth saying once per session */
+          }
+          host.notify({
+            kind: 'info',
+            message:
+              'transcript appears above the composer while you talk; the recording and its transcript are saved in the Call Recorder pane'
+          })
+        }
       }
       qc.invalidateQueries({ queryKey: [ID] })  // no await: never hold the button
     } catch (e) {
