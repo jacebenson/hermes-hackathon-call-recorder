@@ -7,6 +7,22 @@ Built because "record the call so I can review it later" should not mean opening
 OBS, hunting for the right PulseAudio source, and losing the half of the
 conversation that came out of your headphones.
 
+## What it looks like
+
+![The composer, live transcript strip and record control](docs/screenshots/composer-and-live-strip.png)
+
+While a call is recording, the last few transcribed lines sit above the composer,
+labelled `LIVE` and split by speaker. The `rec` control is the dot in the composer;
+the elapsed time lives in the status bar.
+
+![The recorder pane](docs/screenshots/recorder-pane.png)
+
+The pane carries the state (`Recording`, or the reason it cannot record), the
+live transcript, the recordings with their durations and sizes, and a transcript
+per recording.
+
+![The recorder in context](docs/screenshots/in-context.png)
+
 ## What you get
 
 - **A `rec` button in the composer.** Click to start, click to stop. It counts up
