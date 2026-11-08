@@ -308,6 +308,15 @@ async def post_keep() -> dict:
     return await asyncio.to_thread(lambda: recorder().keep())
 
 
+@router.post("/delete")
+async def post_delete(body: dict) -> dict:
+    """Remove one recording and its transcript. Destructive: the UI asks first."""
+    path = (body or {}).get("file", "")
+    if not path:
+        return {"ok": False, "error": "file is required"}
+    return await asyncio.to_thread(lambda: recorder().delete_recording(path))
+
+
 @router.post("/recheck")
 async def post_recheck() -> dict:
     """Forget every cached detection and look again (used after installing a driver)."""

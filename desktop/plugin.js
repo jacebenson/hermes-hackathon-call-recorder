@@ -252,6 +252,7 @@ function RecorderPane({ ctx }) {
   const qc = useQueryClient()
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState('')
   const tailRef = useRef(null)
 
   const status = useQuery(statusQuery(ctx))
@@ -496,13 +497,39 @@ function RecorderPane({ ctx }) {
                                           className: 'text-[0.6875rem] text-(--ui-text-quaternary)',
                                           children: 'transcript'
                                         }),
-                                        jsx(Button, {
-                                          size: 'sm',
-                                          variant: 'secondary',
-                                          disabled: busy,
-                                          title: 'Put the whole transcript in the composer',
-                                          onClick: () => putInComposer(r.transcript),
-                                          children: '→ chat'
+                                        jsxs('div', {
+                                          className: 'flex items-center gap-1',
+                                          children: [
+                                            jsx(Button, {
+                                              size: 'sm',
+                                              variant: 'secondary',
+                                              disabled: busy,
+                                              title: 'Put the whole transcript in the composer',
+                                              onClick: () => putInComposer(r.transcript),
+                                              children: '→ chat'
+                                            }),
+                                            jsx(Button, {
+                                              size: 'sm',
+                                              variant: 'ghost',
+                                              disabled: busy,
+                                              title: 'Delete this recording and its transcript',
+                                              // two steps: audio is not recoverable
+                                              onClick: () => {
+                                                if (confirmDelete !== r.file) {
+                                                  setConfirmDelete(r.file)
+                                                  setTimeout(
+                                                    () => setConfirmDelete(''),
+                                                    5000
+                                                  )
+                                                  return
+                                                }
+                                                setConfirmDelete('')
+                                                call('/delete', { file: r.file })
+                                              },
+                                              children:
+                                                confirmDelete === r.file ? 'confirm' : 'delete'
+                                            })
+                                          ]
                                         })
                                       ]
                                     }),

@@ -486,6 +486,31 @@ class Recorder:
         return [line for line in out.splitlines()
                 if line.strip() and not line.strip().startswith("===")]
 
+    # -- delete -------------------------------------------------------------- #
+
+    def delete_recording(self, path: str) -> dict:
+        """Remove one recording and its transcript, never anything else.
+
+        Deleting audio is destructive, so the path is checked twice: it must sit in the
+        configured recordings directory and its basename must look like one of ours.
+        """
+        import os
+
+        name = os.path.basename((path or "").strip())
+        if not name.startswith("call-") or not name.endswith(".mkv"):
+            return {"ok": False, "error": "not a recording of mine"}
+        directory = self.rec_dir().rstrip("/")
+        target = os.path.join(directory, name)
+        if os.path.dirname(target.rstrip("/")) != directory:
+            return {"ok": False, "error": "outside the recordings directory"}
+        transcript = target[:-4] + ".transcript.md"
+        code, out = self.run(
+            f"test -f {shlex.quote(target)} && rm -f {shlex.quote(target)} "
+            f"{shlex.quote(transcript)} && echo deleted", timeout=60)
+        if code != 0 or "deleted" not in out:
+            return {"ok": False, "error": out.strip()[:200] or "could not delete that recording"}
+        return {"ok": True, "removed": [name, os.path.basename(transcript)]}
+
     # -- scripts ------------------------------------------------------------ #
 
     def install_scripts(self, local_scripts: Path, dest: str = "") -> dict:

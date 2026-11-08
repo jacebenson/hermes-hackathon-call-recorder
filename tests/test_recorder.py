@@ -313,6 +313,34 @@ class DetectionTests(unittest.TestCase):
         rec.recordings_dir = "/srv/calls"
         self.assertEqual(rec.rec_dir(), "/srv/calls")
 
+
+    def test_delete_refuses_anything_that_is_not_one_of_ours(self):
+        rec = FakeRecorder()
+        rec.recordings_dir = "/srv/calls"
+        for bad in ("/etc/passwd", "/srv/calls/notes.txt", "/srv/calls/../call-1.mkv",
+                    "/srv/calls/sub/call-1.mkv", ""):
+            self.assertFalse(rec.delete_recording(bad)["ok"], bad)
+
+    def test_delete_removes_the_file_and_its_transcript(self):
+        rec = FakeRecorder()
+        rec.recordings_dir = "/srv/calls"
+        seen = {}
+        rec.commands = []
+
+        def fake_run(command, timeout=30):
+            seen["command"] = command
+            return 0, "deleted"
+
+        original = rec.run
+        rec.run = fake_run
+        try:
+            result = rec.delete_recording("/srv/calls/call-20260101-120000.mkv")
+        finally:
+            rec.run = original
+        self.assertTrue(result["ok"])
+        self.assertIn("/srv/calls/call-20260101-120000.mkv", seen["command"])
+        self.assertIn("call-20260101-120000.transcript.md", seen["command"])
+
     def test_ssh_commands_are_quoted_once(self):
         """ssh joins argv with spaces; an unquoted multi-word command word-splits remotely."""
         rec = Recorder(host="desk", state_file="/nonexistent/x.json")
