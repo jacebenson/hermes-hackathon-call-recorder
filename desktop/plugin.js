@@ -83,6 +83,27 @@ function ComposerRecordButton({ ctx }) {
     return () => clearTimeout(id)
   }, [pending])
 
+  // One time only: a fresh install has a bare `rec` button and no idea where the
+  // recordings go. Say it once, then never again.
+  useEffect(() => {
+    let shown = false
+    try {
+      shown = Boolean(ctx.storage.get('hintShown'))
+    } catch {
+      shown = true
+    }
+    if (shown) return
+    try {
+      ctx.storage.set('hintShown', true)
+    } catch {
+      /* storage unavailable: better to say it than to stay silent */
+    }
+    host.notify({
+      kind: 'info',
+      message: 'call-recorder: click rec while you are on a call - recordings and transcripts appear in the Call Recorder pane'
+    })
+  }, [ctx])
+
   const toggle = async () => {
     if (pending) return
     const stopping = recording
