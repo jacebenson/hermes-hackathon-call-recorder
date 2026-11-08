@@ -160,8 +160,13 @@ Step two is the one people skip: without it the room goes silent, because the ca
 audio is being captured by us instead of played to you. Volume still works normally.
 
 A note from doing this over SSH: the driver files land, but the device only appears
-after the machine reboots, and the installer's own dialog needs a real desktop session.
-Plan for one reboot, at the machine, not from a remote shell.
+after a real restart, and the installer's own dialog needs a desktop session. Plan for
+one restart, at the machine, not from a remote shell.
+
+**Use Restart, not Shut down.** Windows ships with fast startup on, which hibernates
+the kernel: shutting down and powering back on restores the old session instead of
+reloading drivers, so the cable stays missing and the uptime counter never moves.
+That looks exactly like "the install did nothing".
 
 Now `Readiness` turns `ready`, and recordings are named `call-YYYYMMDD-HHMMSS.mkv`
 with a `system` track and a `mic` track. Delete the cable later and the plugin goes
