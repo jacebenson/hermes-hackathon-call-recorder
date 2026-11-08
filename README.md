@@ -48,59 +48,32 @@ restart the gateway so the dashboard routes and the desktop half load.
 
 ## Configure
 
-Settings live where you would look for them: **Settings → Plugins → Call Recorder**,
-generated from the `config_schema` in `plugin.yaml`. Nothing to hand-edit.
+Four questions, in the order they matter. This is the whole settings page.
 
-| field | meaning |
-| --- | --- |
-| Audio source machine | Leave empty. See below — it finds the machine with the microphone. |
-| Recordings folder | Where the two-track mkv files land, on the recorded machine. |
-| Transcription interpreter | Leave empty. Found on the recorded machine. |
-| Live transcription script | Leave empty. Found next to `archive.py`. |
-| Start recording automatically | Starts when a call app is both playing audio and capturing the mic. |
-| Stop delay (seconds) | How long to keep recording after the call disappears. `0` never stops automatically. |
-| Check interval (seconds) | How often the recorder looks for a call. |
+**1. Machine that records.** The computer with the microphone and the headset. Leave
+it empty and it is chosen for you: the machine where a call is in progress, else the
+first machine in your SSH config that has audio devices. Fill it in only to pin one.
 
-### Nothing has to be typed
+**2. Save recordings to.** A folder on that machine. Recording happens where the
+audio is, so the mkv and its transcript stay there — the file is already on disk and
+survives the connection dropping mid-call.
 
-All three of the fiddly answers are discovered, not asked for:
+**3. Transcribe recordings.** On by default. It needs a Python on the recording
+machine that can import `faster-whisper`; the recorder looks for one, copies its own
+`live.py` and `archive.py` there (into `~/.local/share/call-recorder`), and says so
+in the pane when it cannot find a runtime. Off means record-only.
 
-- **Which machine** — the one with a call in progress, else the one with audio, else
-  the first SSH host that has either.
-- **Which Python** — the first interpreter on that machine that can import
-  `faster_whisper` (`~/whisper/.venv/bin/python` is checked first, plus `python3`).
-- **Which script** — `live.py` with `archive.py` beside it.
+**4. Stop when the call ends.** Three minutes of grace after the call disappears,
+then it stops and transcribes. Off means record until you press stop.
 
-An empty settings page is a working configuration. The fields exist to pin
-something specific, and the pane says what was chosen: *"a call is in progress on
-beast-1"*, *"transcription: /home/jace/whisper/.venv/bin/python"*.
+Nothing here has to be filled in for a working install: an untouched settings page
+records on the right machine, transcribes, and stops on its own. Every field exists
+only to pin something specific.
 
-### Which machine gets recorded
-
-The machine running Hermes is usually not the machine with the microphone — a
-server has no headset. So the recorder works it out instead of asking:
-
-1. A machine named in **Audio source machine** always wins.
-2. Otherwise this machine, if it actually has an audio sink and source.
-3. Otherwise it walks the concrete `Host` aliases in `~/.ssh/config`, probing each
-   for `pactl`, `ffmpeg` and a systemd user session, and takes the first that has
-   audio devices.
-4. Nothing found: it says so in the pane rather than recording silence.
-
-The pane shows the choice and the reason — *"pro-1 has no audio devices; beast-1
-does"* — so there is nothing to guess at. `GET /config` returns the same fields
-(`host`, `host_mode`, `why`, `probe`) and `GET /detect` lists every candidate it
-found.
-
-Recording happens over SSH when the machine is remote: no port opened on it, no
-token to distribute, the SSH key is the credential.
-
-
-Resolution order, highest first: `CALLREC_*` environment variables, then the saved
-settings (`plugins.entries.call-recorder.settings` in `config.yaml`), then an optional
-`settings.json` beside `plugin.yaml`, then the schema defaults. So the UI always wins,
-and an environment variable can pin a machine-specific value without editing config.
-
+Advanced keys (`python`, `live_script`, `auto_start`, `auto_stop_seconds`,
+`watch_seconds`, `whisper_model`) are still honoured through `CALLREC_*` environment
+variables or a `settings.json` beside `plugin.yaml`, but they are deliberately not on
+the page.
 
 ## Platform support
 

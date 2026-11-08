@@ -73,7 +73,7 @@ class SettingsTests(unittest.TestCase):
     def test_defaults_when_nothing_is_configured(self):
         cfg = plugin_api.settings()
         self.assertEqual(cfg["recordings_dir"], "~/recordings")
-        self.assertIs(cfg["auto_start"], True)
+        self.assertIs(cfg["auto_start"], False, "nothing records without a click")
         self.assertEqual(cfg["auto_stop_seconds"], 180)
 
     def test_settings_page_values_win_over_defaults(self):
@@ -103,12 +103,23 @@ class SettingsTests(unittest.TestCase):
         self.assertIs(cfg["auto_start"], False)
         self.assertEqual(cfg["watch_seconds"], 30)
 
+    def test_the_two_switches_drive_the_advanced_values(self):
+        self._write_manifest_settings({"transcribe": False, "stop_when_call_ends": False})
+        cfg = plugin_api.settings()
+        self.assertEqual(cfg["python"], "", "transcribe off must disable the interpreter")
+        self.assertEqual(cfg["live_script"], "")
+        self.assertEqual(cfg["auto_stop_seconds"], 0, "stop off must disable the countdown")
+
     def test_unreadable_config_is_not_fatal(self):
         (self.home / "config.yaml").write_text("plugins: [this is not a mapping\n")
         self.assertEqual(plugin_api.settings()["recordings_dir"], "~/recordings")
 
 
 class ManifestSchemaTests(unittest.TestCase):
+    def test_defaults_never_auto_start(self):
+        """Recording someone else's call without a click is not a default."""
+        self.assertIs(plugin_api.settings()["auto_start"], False)
+
     def test_every_schema_key_is_a_setting_the_plugin_reads(self):
         """A schema key nobody reads is a form field that does nothing."""
         import yaml

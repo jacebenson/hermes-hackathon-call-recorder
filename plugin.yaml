@@ -1,48 +1,33 @@
 name: call-recorder
-version: "0.4.1"
-description: Record both sides of a call (system audio + mic) and transcribe it live
-  and after the fact. Ships a composer record button, a status chip and a pane with
-  the live transcript and finished recordings.
+version: "0.5.0"
+description: Record both sides of a call (system audio + mic) and transcribe it. Ships
+  a record button in the composer, a status chip, and a pane with the live transcript,
+  the finished recordings and their transcripts.
 config_schema:
   host:
     type: str
-    label: Audio source machine
-    description: Leave this empty. The recorder then uses whichever machine actually
-      has a microphone - this one if it has audio devices, otherwise the first machine
-      in your SSH config that does - and the pane tells you which it picked and why.
-      Set an SSH alias only to override that choice.
+    label: 1. Machine that records
+    description: The one with the microphone and the headset. Leave it empty and the
+      recorder picks it for you - the machine where a call is in progress, else the
+      first machine on your SSH config that has audio. Fill it in only to pin one.
     default: ""
   recordings_dir:
     type: str
-    label: Recordings folder
-    description: Where the two-track mkv files land, on the recorded machine.
+    label: 2. Save recordings to
+    description: A folder on that machine. The two-track mkv and its transcript land
+      here together; the file stays on the machine that did the recording.
     default: "~/recordings"
-  python:
-    type: str
-    label: Transcription interpreter
-    description: Leave empty. The recorder finds a Python on the recorded machine that
-      can import faster_whisper. Set it only to pin a specific interpreter.
-    default: ""
-  live_script:
-    type: str
-    label: Live transcription script
-    description: Leave empty. The recorder looks for live.py with archive.py beside it.
-      Set it only to pin a specific copy.
-    default: ""
-  auto_start:
+  transcribe:
     type: bool
-    label: Start recording automatically
-    description: Begins on its own when a call app is both playing audio and capturing
-      the mic. A browser tab playing a video is not a call.
+    label: 3. Transcribe recordings
+    description: Needs a Python on the recording machine that can import faster-whisper.
+      The recorder looks for one, installs its own transcription scripts there, and says
+      so in the pane if it cannot find it. Off means record-only.
     default: true
-  auto_stop_seconds:
-    type: int
-    label: Stop delay (seconds)
-    description: How long to keep recording after the call disappears. 0 never stops
-      automatically; the recording keeps rolling during the countdown.
-    default: 180
-  watch_seconds:
-    type: int
-    label: Check interval (seconds)
-    description: How often the recorder looks for a call.
-    default: 10
+  stop_when_call_ends:
+    type: bool
+    label: 4. Stop when the call ends
+    description: Three minutes after the call disappears the recording stops and gets
+      transcribed. Off means record until you press stop - useful if the call app
+      reports audio strangely.
+    default: true

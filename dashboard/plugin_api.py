@@ -49,16 +49,23 @@ from recorder import (  # noqa: E402
 
 router = APIRouter()
 
+#: Advanced keys stay here (env / settings.json can pin them) but are NOT in the
+#: manifest schema: the settings page asks four questions, not seven.
 DEFAULTS = {
-    "host": "",                    # "" = record the machine running this plugin
+    "host": "",                    # "" = the machine that has the microphone
     "recordings_dir": "~/recordings",
-    "python": "",                  # e.g. ~/whisper/.venv/bin/python (needed for transcription)
-    "live_script": "",             # e.g. ~/whisper/live.py (archive.py sits beside it)
+    "transcribe": True,            # the one transcription switch
+    "stop_when_call_ends": True,   # three minutes of grace, then stop and transcribe
+    "python": "",                  # advanced: pin an interpreter
+    "live_script": "",             # advanced: pin a script pair
     "whisper_model": "",
-    "auto_start": True,            # start on its own when a call is detected
-    "auto_stop_seconds": 180,      # keep recording this long after the call ends (0 = never stop)
-    "watch_seconds": 10,           # how often the watcher looks
+    "auto_start": False,           # manual start only, by default
+    "auto_stop_seconds": 180,
+    "watch_seconds": 10,
 }
+
+#: Seconds of grace after the call disappears before recording stops.
+STOP_GRACE_SECONDS = 180
 
 PLUGIN_ID = "call-recorder"
 
@@ -112,9 +119,17 @@ def settings() -> dict:
         env = os.environ.get(f"CALLREC_{key.upper()}")
         if env:
             merged[key] = env
-    merged["auto_start"] = _as_bool(merged["auto_start"], DEFAULTS["auto_start"])
-    merged["auto_stop_seconds"] = _as_int(merged["auto_stop_seconds"], DEFAULTS["auto_stop_seconds"])
-    merged["watch_seconds"] = _as_int(merged["watch_seconds"], DEFAULTS["watch_seconds"])
+    merged["transcribe"] = _as_bool(merged["transcribe"], True)
+    merged["stop_when_call_ends"] = _as_bool(merged["stop_when_call_ends"], True)
+    merged["auto_start"] = _as_bool(merged["auto_start"], False)
+    merged["auto_stop_seconds"] = _as_int(merged["auto_stop_seconds"],
+                                          STOP_GRACE_SECONDS if merged["stop_when_call_ends"] else 0)
+    merged["watch_seconds"] = _as_int(merged["watch_seconds"], 10)
+    if not merged["stop_when_call_ends"]:
+        merged["auto_stop_seconds"] = 0
+    if not merged["transcribe"]:
+        merged["python"] = ""
+        merged["live_script"] = ""
     return merged
 
 
@@ -175,6 +190,12 @@ def resolved_transcription() -> dict:
     except Exception as exc:  # noqa: BLE001
         _log.warning("call-recorder: transcription detection failed: %s", exc)
         found = {"ok": False, "python": "", "live_script": "", "target": host or "local"}
+    if found.get("python") and not found.get("live_script"):
+        # The machine can transcribe; it just has no scripts yet. Ship ours.
+        installed = Recorder(host=host or None).install_scripts(_PLUGIN_ROOT / "scripts")
+        if installed.get("ok"):
+            found = {**found, "ok": True, "live_script": installed["live_script"],
+                     "installed": True}
     result = {**found, "mode": "auto" if found.get("ok") else "unavailable"}
     _TRANSCRIPTION_CACHE.update({"at": now, "host": host, "value": result})
     return result

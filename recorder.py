@@ -10,6 +10,7 @@ runs the same commands over SSH instead of locally.
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 import shlex
@@ -343,6 +344,29 @@ class Recorder:
         path = f"{self.recordings_dir}/live.txt"
         out = self.run(f"tail -n {int(lines)} {shlex.quote(path)} 2>/dev/null")[1]
         return [line for line in out.splitlines() if line.strip()]
+
+    # -- scripts ------------------------------------------------------------ #
+
+    def install_scripts(self, local_scripts: Path, dest: str = "~/.local/share/call-recorder") -> dict:
+        """Copy live.py and archive.py to the recorded machine.
+
+        The plugin ships them, so "where is live.py" never becomes a setting: they are
+        written once into a directory the user owns, and reused from then on.
+        """
+        try:
+            self.ok(f"mkdir -p {dest}")
+        except RuntimeError as exc:
+            return {"ok": False, "error": str(exc)}
+        for name in ("live.py", "archive.py"):
+            source = Path(local_scripts) / name
+            if not source.is_file():
+                return {"ok": False, "error": f"plugin is missing scripts/{name}"}
+            payload = base64.b64encode(source.read_bytes()).decode()
+            try:
+                self.ok(f"printf %s {shlex.quote(payload)} | base64 -d > {dest}/{name}")
+            except RuntimeError as exc:
+                return {"ok": False, "error": str(exc)}
+        return {"ok": True, "live_script": f"{dest}/live.py"}
 
     # -- recordings --------------------------------------------------------- #
 
