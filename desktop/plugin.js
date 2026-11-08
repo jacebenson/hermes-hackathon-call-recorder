@@ -35,46 +35,52 @@ const statusQuery = (ctx) => ({
 
 function ComposerRecordButton({ ctx }) {
   const qc = useQueryClient()
-  const [busy, setBusy] = useState(false)
+  // The click flips the button immediately; the request catches up. Starting a
+  // remote recording takes a second or two, and a button that ignores you for
+  // that long reads as broken.
+  const [pending, setPending] = useState(null)
   const status = useQuery(statusQuery(ctx))
   const st = status.data || {}
   const recording = !!st.recording
+  const shownRecording = pending === 'start' ? true : pending === 'stop' ? false : recording
 
   const toggle = async () => {
-    setBusy(true)
+    if (pending) return
+    const stopping = recording
+    setPending(stopping ? 'stop' : 'start')
     try {
-      if (recording) await ctx.rest('/stop', { method: 'POST', body: {} })
+      if (stopping) await ctx.rest('/stop', { method: 'POST', body: {} })
       else await ctx.rest('/start', { method: 'POST', body: { live: true } })
       await qc.invalidateQueries({ queryKey: [ID] })
-      host.notify({ kind: 'info', message: recording ? 'call-recorder: stopped' : 'call-recorder: recording' })
+      host.notify({ kind: 'info', message: stopping ? 'call-recorder: stopped' : 'call-recorder: recording' })
     } catch (e) {
       host.notify({ kind: 'error', message: 'call-recorder: ' + (e && e.message ? e.message : e) })
     } finally {
-      setBusy(false)
+      setPending(null)
     }
   }
 
   return jsxs('button', {
     type: 'button',
     onClick: toggle,
-    disabled: busy,
-    title: recording
+    title: shownRecording
       ? 'Stop recording (' + clock(st.elapsed) + ')'
       : 'Record this call (system audio + mic)',
     className: cn(
       'inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[0.6875rem] transition-colors',
-      recording
+      shownRecording
         ? 'bg-red-500/10 text-red-500'
-        : 'text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground'
+        : 'text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground',
+      pending ? 'opacity-70' : ''
     ),
     children: [
       jsx('span', {
         className: cn(
           'block h-2 w-2 rounded-full',
-          recording ? 'bg-red-500 animate-pulse' : 'bg-current opacity-50'
+          shownRecording ? 'bg-red-500 animate-pulse' : 'bg-current opacity-50'
         )
       }),
-      recording ? clock(st.elapsed) : 'rec'
+      pending ? '…' : shownRecording ? clock(st.elapsed) : 'rec'
     ]
   })
 }

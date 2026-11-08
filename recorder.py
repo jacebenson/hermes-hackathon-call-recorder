@@ -197,10 +197,24 @@ class Recorder:
     # -- sources ------------------------------------------------------------ #
 
     def sources(self) -> dict:
-        sink_inputs = parse_sink_inputs(self.ok("pactl list sink-inputs"))
-        sinks = parse_sinks(self.ok("pactl list short sinks"))
-        default_sink = self.ok("pactl get-default-sink").strip()
-        mic = self.ok("pactl get-default-source").strip()
+        """All four answers in one SSH round trip: each one costs ~300ms otherwise."""
+        raw = self.ok(
+            "echo __SI__; pactl list sink-inputs 2>/dev/null; "
+            "echo __SK__; pactl list short sinks 2>/dev/null; "
+            "echo __DS__; pactl get-default-sink 2>/dev/null; "
+            "echo __DC__; pactl get-default-source 2>/dev/null"
+        )
+        sections = {"__SI__": "", "__SK__": "", "__DS__": "", "__DC__": ""}
+        current = None
+        for line in raw.splitlines():
+            if line.strip() in sections:
+                current = line.strip()
+            elif current:
+                sections[current] += line + "\n"
+        sink_inputs = parse_sink_inputs(sections["__SI__"])
+        sinks = parse_sinks(sections["__SK__"])
+        default_sink = sections["__DS__"].strip()
+        mic = sections["__DC__"].strip()
         return {"monitor": pick_monitor(sink_inputs, sinks, default_sink), "mic": mic,
                 "call_apps": [i["app"] for i in sink_inputs if is_call_app(i["app"])]}
 
@@ -245,29 +259,54 @@ class Recorder:
             shlex.quote(out),
         ])
         self.ok(command)
-        self.save_state({"unit": unit, "file": out, "started": time.time(),
-                         "monitor": src["monitor"], "mic": src["mic"], "live": bool(live)})
+        state = {"unit": unit, "file": out, "started": time.time(),
+                 "monitor": src["monitor"], "mic": src["mic"], "live": bool(live)}
+        self.save_state(state)
         if live:
             self.start_live()
-        time.sleep(1.0)
-        return {"ok": True, **self.status()}
+        # Answer from what we already know: another status() here is only extra latency.
+        return {"ok": True, "recording": True, "live": bool(live) and self.live_available(),
+                "host": self.host or "local", "unit": unit, "file": out, "bytes": 0,
+                "elapsed": 0, "monitor": src["monitor"], "mic": src["mic"],
+                "auto_start": self.auto_start, "auto_stop_seconds": self.auto_stop_seconds,
+                "pending_stop": 0}
 
     def stop(self) -> dict:
         if self.os_name == "windows":
             import capture_windows
             return capture_windows.stop(self)
         state = self.state()
-        self.stop_live()
-        if state.get("unit"):
-            self.run(f"systemctl --user stop {shlex.quote(state['unit'])}", timeout=30)
-            self.run(f"systemctl --user reset-failed {shlex.quote(state['unit'])}", timeout=15)
-        time.sleep(0.5)
-        result = {"ok": True, "recording": False}
+        unit = state.get("unit")
         path = state.get("file")
+        stops = [f"systemctl --user stop {LIVE_UNIT} 2>/dev/null"]
+        if unit:
+            stops.append(f"systemctl --user stop {shlex.quote(unit)} 2>/dev/null")
+            stops.append(f"systemctl --user reset-failed {shlex.quote(unit)} 2>/dev/null")
+        command = "; ".join(stops)
+        if path:
+            command += (f"; echo __SZ__; stat -c %s {shlex.quote(path)} 2>/dev/null"
+                        f"; echo __DU__; ffprobe -v error -show_entries format=duration "
+                        f"-of csv=p=0 {shlex.quote(path)} 2>/dev/null")
+        _code, out = self.run(command, timeout=90)
+        result = {"ok": True, "recording": False}
         if path:
             result["file"] = path
-            result["bytes"] = self.file_size(path)
-            result["duration"] = self.duration(path)
+            size = duration = ""
+            section = None
+            for line in out.splitlines():
+                if line.strip() == "__SZ__":
+                    section = "size"
+                elif line.strip() == "__DU__":
+                    section = "duration"
+                elif section == "size":
+                    size += line.strip()
+                elif section == "duration":
+                    duration += line.strip()
+            try:
+                result["bytes"] = int(size.strip().splitlines()[0])
+            except (ValueError, IndexError):
+                result["bytes"] = 0
+            result["duration"] = parse_duration(duration)
         self.save_state({**state, "unit": None, "stopped": time.time()})
         return result
 
