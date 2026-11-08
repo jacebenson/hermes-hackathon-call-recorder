@@ -348,6 +348,9 @@ function RecorderPane({ ctx }) {
         }
         if (path === '/capture-host') {
           qc.setQueryData([ID, 'capture-host'], () => res)
+          // The recordings list belongs to the machine that was selected when it was
+          // fetched, so a new host must drop the cached list instead of showing it.
+          qc.invalidateQueries({ queryKey: [ID, "recordings"], refetchType: "all" })
           setHostMenu(false)
           setHostDraft('')
           setDiagnosis(null)
