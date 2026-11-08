@@ -89,6 +89,14 @@ class TestLaunchCommand(unittest.TestCase):
         self.assertIn("--stop-file", wasapi.LAUNCH_PS1)
         self.assertIn("--status-file", wasapi.LAUNCH_PS1)
 
+    def test_the_plugin_names_the_file_not_the_helper(self):
+        # One clock for both platforms: the name arrives from the plugin, in UTC.
+        self.assertIn("--name", wasapi.LAUNCH_PS1)
+        source = (pathlib.Path(__file__).resolve().parent.parent
+                  / "scripts" / "wasapi_capture.py").read_text()
+        self.assertIn("--name", source)
+        self.assertIn("args.name or", source)
+
 
 if __name__ == "__main__":
     unittest.main()

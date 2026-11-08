@@ -106,14 +106,16 @@ def main() -> int:
     parser.add_argument("--stop-file", required=True)
     parser.add_argument("--seconds", type=float, default=0)
     parser.add_argument("--status-file", default="")
+    parser.add_argument("--name", default="", help="call-YYYYMMDD-HHMMSS from the plugin, in UTC")
     args = parser.parse_args()
 
     out_dir = pathlib.Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    system_wav = out_dir / f"call-{stamp}.system.wav"
-    mic_wav = out_dir / f"call-{stamp}.mic.wav"
-    final = out_dir / f"call-{stamp}.mkv"
+    # The plugin names every recording, so both platforms use one clock and one path.
+    name = args.name or ("call-" + time.strftime("%Y%m%d-%H%M%S", time.gmtime()))
+    system_wav = out_dir / f"{name}.system.wav"
+    mic_wav = out_dir / f"{name}.mic.wav"
+    final = out_dir / f"{name}.mkv"
     status_path = pathlib.Path(args.status_file) if args.status_file else None
 
     pa = pyaudio.PyAudio()
@@ -130,7 +132,7 @@ def main() -> int:
 
         if status_path:
             status_path.write_text(json.dumps({
-                "started": time.time(), "name": f"call-{stamp}",
+                "started": time.time(), "name": name,
                 "system": loop_name, "mic": mic_name,
                 "rates": [t.rate for t in tracks]}, indent=1))
 

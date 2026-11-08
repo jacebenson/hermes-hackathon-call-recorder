@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import pathlib
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+
+from recorder import Recorder
 
 import transcribe as tx
 
@@ -62,6 +65,26 @@ class TranscribeTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["segments"], 6)
         self.assertTrue(any(command.startswith("grep -c") for command in rec.commands))
+
+    def test_archive_success_without_a_written_file_is_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            rec = Recorder()
+            source = str(pathlib.Path(directory) / 'call.mkv')
+            result = tx.transcribe(rec, source, gpu_python='/bin/true', gpu_script='ignored')
+            self.assertFalse(result['ok'])
+            self.assertIn('transcript', result['error'].lower())
+
+    def test_archive_verifies_and_counts_the_actual_written_markdown(self):
+        with tempfile.TemporaryDirectory(prefix='archive space ') as directory:
+            source = pathlib.Path(directory) / 'call.mkv'
+            script = pathlib.Path(directory) / 'archive stub.py'
+            script.write_text("import pathlib, sys\np = pathlib.Path(sys.argv[1]).with_suffix('.transcript.md')\np.write_text('**[00:01] you:** one\\n\\n**[00:02] them:** two\\n')\n")
+            rec = Recorder()
+            result = tx.transcribe(rec, str(source), gpu_python=sys.executable, gpu_script=str(script))
+            self.assertTrue(result['ok'])
+            self.assertEqual(result['engine'], 'gpu')
+            self.assertEqual(result['segments'], 2)
+            self.assertTrue(source.with_suffix('.transcript.md').exists())
 
     def test_a_failed_run_returns_the_error_rather_than_a_guess(self):
         rec = FakeRecorder(run_code=1)

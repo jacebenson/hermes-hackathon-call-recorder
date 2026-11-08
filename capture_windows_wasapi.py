@@ -86,9 +86,9 @@ def interactive_session(rec) -> dict:
 
 TASK_NAME = "call-recorder-capture"
 
-LAUNCH_PS1 = r"""param([string]$Script,[string]$OutDir,[string]$StopFile,[string]$StatusFile)
+LAUNCH_PS1 = r"""param([string]$Script,[string]$OutDir,[string]$StopFile,[string]$StatusFile,[string]$Name)
 $python = (Get-Command python).Source
-$argline = '-u "' + $Script + '" --out-dir "' + $OutDir + '" --stop-file "' + $StopFile + '" --status-file "' + $StatusFile + '"'
+$argline = '-u "' + $Script + '" --out-dir "' + $OutDir + '" --stop-file "' + $StopFile + '" --status-file "' + $StatusFile + '" --name "' + $Name + '"'
 $action = New-ScheduledTaskAction -Execute $python -Argument $argline
 $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $principal = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunLevel Limited
@@ -122,7 +122,7 @@ def _write_text(rec, dest: str, text: str) -> dict:
 
 
 def _launch_in_session(rec, script: str, out_dir: str, stop_file: str,
-                       status_file: str, log_file: str) -> dict:
+                       status_file: str, log_file: str, name: str) -> dict:
     """Start the recorder inside the logged-in desktop, not in the SSH session.
 
     An SSH child runs in session 0, which owns no audio endpoint: the capture opens
@@ -140,7 +140,7 @@ def _launch_in_session(rec, script: str, out_dir: str, stop_file: str,
 
     command = (f"powershell -NoProfile -ExecutionPolicy Bypass -File {_q(helper)} "
                f"-Script {_q(script)} -OutDir {_q(out_dir)} -StopFile {_q(stop_file)} "
-               f"-StatusFile {_q(status_file)}")
+               f"-StatusFile {_q(status_file)} -Name {_q(name)}")
     code, out = rec.run(command, timeout=120)
     text = (out or "").strip()
     if "scheduled=" not in text:
@@ -168,9 +168,11 @@ def start(rec, live: bool = False) -> dict:
         return {"ok": False, "error": installed["error"]}
 
     out_dir, stop_file, status_file, log_file = _dirs(rec)
+    name = "call-" + time.strftime("%Y%m%d-%H%M%S", time.gmtime())
     rec.run(f"New-Item -ItemType Directory -Force -Path {_q(out_dir)} | Out-Null; "
             f"Remove-Item -Force {_q(stop_file)},{_q(status_file)} -ErrorAction SilentlyContinue")
-    launched = _launch_in_session(rec, installed["script"], out_dir, stop_file, status_file, log_file)
+    launched = _launch_in_session(rec, installed["script"], out_dir, stop_file, status_file,
+                                  log_file, name)
     if not launched.get("ok"):
         return {"ok": False, "ready": True, "error": launched.get("error", "could not start recording"),
                 "detail": launched.get("detail", ""), "fix": launched.get("fix")}
@@ -191,7 +193,7 @@ def start(rec, live: bool = False) -> dict:
                      "status_file": status_file, "name": info.get("name") or "",
                      "system": info.get("system"), "mic": info.get("mic"),
                      "started": info.get("started") or time.time(), "live": False, "unit": None}
-            state["file"] = out_dir + "\\" + (state["name"] or "") + ".mkv"
+            state["file"] = out_dir + "\\" + name + ".mkv"
             rec.save_state(state)
             return {"ok": True, "ready": True, "recording": True, "file": state["file"],
                     "device": state["system"], "microphone": state["mic"],

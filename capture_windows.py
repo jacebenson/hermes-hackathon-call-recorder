@@ -84,7 +84,7 @@ def start(rec, live: bool = False) -> dict:
                 "fix": info.get("fix"), "readiness": info}
 
     cable, microphone = info["device"], info["microphone"]
-    stamp = time.strftime("%Y%m%d-%H%M%S")
+    stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
     directory = resolved_dir(rec)
     out_file = f"{directory}\\call-{stamp}.mkv"
     stop_file = out_file + ".stop"

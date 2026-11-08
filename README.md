@@ -36,8 +36,10 @@ uv venv ~/whisper/.venv && ~/whisper/.venv/bin/python -m pip install faster-whis
 
 Click `rec` by the composer. The chip shows a red dot and a timer, and turns **amber**
 after thirty seconds of mic silence. Every stop path, including the pane and auto-stop,
-queues archive transcription when enabled. The UI reports transcription progress and
-shows success only after the archive pass succeeds. Failures appear in a toast.
+saves usable live speech as the finished transcript when transcription is enabled.
+If live speech is missing or cannot be saved, it queues a Whisper archive re-pass.
+The toast names the pass that wrote the transcript, or reports when both failed.
+Choose `Transcribe` in the pane to replace a transcript with a cleaner Whisper re-pass.
 
 Auto-start is **off by default**. Turn it on and a call is detected as *a known call app
 playing audio and capturing the mic at the same time*; playback alone is not a call. With
@@ -45,9 +47,11 @@ auto-stop on, the recording ends three minutes after the call disappears, so a s
 share or a dropped window does not truncate it.
 
 Files stay on the machine that recorded them: `call-YYYYMMDD-HHMMSS.mkv` with a `system`
-and a `mic` track, plus `<file>.transcript.md`. Two tracks, not a mix, which is what makes
-speaker labels possible without diarisation. The pane lists them by title or date, opens a
-transcript, puts one in the composer, or deletes the pair. Expand a recording and choose
+and a `mic` track, plus `call-YYYYMMDD-HHMMSS.transcript.md`. Live transcription writes
+`call-YYYYMMDD-HHMMSS.live.txt` beside the recording. Its timestamps mark chunk completion,
+not precise word timing. Two tracks, not a mix, make speaker labels possible without
+diarisation. The pane lists recordings by title or date, opens a transcript, puts one in
+the composer, or deletes the recording and both transcript files. Expand a recording and choose
 `Rename`. Enter saves, Escape cancels, and an empty title restores the date. Titles are
 trimmed, limited to 120 characters, and cannot contain control characters. They stay in
 `.titles.json` beside the recordings, never in media filenames. Naming uses `python3`
@@ -86,7 +90,7 @@ when the call ends. An empty machine field picks a machine on a call, else one w
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests                       # 66 tests
+python3 -m unittest discover -s tests                       # 83 tests
 node --experimental-vm-modules --no-warnings tests/desktop.test.mjs
 node --check desktop/plugin.js
 hermes plugins validate . --install-deps

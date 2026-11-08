@@ -39,7 +39,7 @@ if str(_PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(_PLUGIN_ROOT))
 
 from platforms import readiness as platform_readiness  # noqa: E402
-from transcribe import transcribe as run_transcription  # noqa: E402
+from transcribe import transcribe as run_transcription, transcribe_from_live  # noqa: E402
 from recorder import (  # noqa: E402
     Recorder,
     choose_source,
@@ -242,6 +242,7 @@ def _transcribe(rec, path: str) -> dict:
 
 _TRANSCRIPTION_JOBS: dict = {}
 _TRANSCRIPTION_LOCK = threading.Lock()
+_TRANSCRIPTION_FILE_LOCKS: dict = {}
 
 
 def _launch_archive(worker) -> None:
@@ -249,7 +250,7 @@ def _launch_archive(worker) -> None:
 
 
 def _after_stop(rec, result: dict) -> dict:
-    """Queue the archive pass once for every successful enabled stop."""
+    """Publish live speech first, or queue one archive fallback per recording."""
     path = result.get("file")
     if not result.get("ok") or not path or not settings()["transcribe"]:
         return result
@@ -259,24 +260,45 @@ def _after_stop(rec, result: dict) -> dict:
             return {**result, "transcription": dict(_TRANSCRIPTION_JOBS[key])}
         job = {"file": path, "state": "queued", "ok": None}
         _TRANSCRIPTION_JOBS[key] = job
+        file_lock = _TRANSCRIPTION_FILE_LOCKS.setdefault(key, threading.Lock())
+
+    with file_lock:
+        with _TRANSCRIPTION_LOCK:
+            if _TRANSCRIPTION_JOBS.get(key) is not job:
+                return {**result, "transcription": dict(_TRANSCRIPTION_JOBS[key])}
+        try:
+            live = transcribe_from_live(rec, path)
+        except Exception as exc:
+            _log.warning("call-recorder live transcript: %s", exc)
+            live = {"ok": False, "error": "Could not read or save the live transcript."}
+        with _TRANSCRIPTION_LOCK:
+            if live.get("ok"):
+                job.update(live, state="ready")
+                return {**result, "transcription": dict(job)}
+            job["live_error"] = live.get("error", "No usable live transcript.")
 
     def worker():
-        with _TRANSCRIPTION_LOCK:
-            job.update(state="running")
-        try:
-            outcome = _transcribe(rec, path)
-        except Exception as exc:
-            _log.warning("call-recorder archive: %s", exc)
-            outcome = {"ok": False, "error": "Could not transcribe on the recording machine."}
-        with _TRANSCRIPTION_LOCK:
-            job.update(outcome)
-            job["state"] = "ready" if outcome.get("ok") else "failed"
+        with file_lock:
+            with _TRANSCRIPTION_LOCK:
+                # A forced re-pass supersedes an automatic job that has not run.
+                if _TRANSCRIPTION_JOBS.get(key) is not job:
+                    return
+                job.update(state="running")
+            try:
+                outcome = _transcribe(rec, path)
+            except Exception as exc:
+                _log.warning("call-recorder archive: %s", exc)
+                outcome = {"ok": False, "error": "Could not transcribe on the recording machine."}
+            with _TRANSCRIPTION_LOCK:
+                job.update(outcome)
+                job["state"] = "ready" if outcome.get("ok") else "failed"
+                job["both_failed"] = not bool(outcome.get("ok"))
 
     try:
         _launch_archive(worker)
     except Exception:
         with _TRANSCRIPTION_LOCK:
-            job.update(state="failed", ok=False, error="Could not start transcription.")
+            job.update(state="failed", ok=False, both_failed=True, error="Could not start transcription.")
     return {**result, "transcription": dict(job)}
 
 
@@ -457,12 +479,28 @@ async def read_transcript(path: str) -> dict:
 
 @router.post("/transcribe")
 async def post_transcribe(body: dict) -> dict:
-    """Transcribe one recording with whichever engine this setup can use."""
+    """Force a quality Whisper re-pass, replacing any live-derived transcript."""
     path = (body or {}).get("file", "")
     if not path:
         return {"ok": False, "error": "file is required"}
 
-    return await asyncio.to_thread(lambda: _transcribe(recorder(), path))
+    def _force():
+        rec = recorder()
+        key = (rec.host or "local", path)
+        with _TRANSCRIPTION_LOCK:
+            job = {"file": path, "state": "running", "ok": None}
+            _TRANSCRIPTION_JOBS[key] = job
+            file_lock = _TRANSCRIPTION_FILE_LOCKS.setdefault(key, threading.Lock())
+        with file_lock:
+            try:
+                outcome = _transcribe(rec, path)
+            except Exception as exc:
+                _log.warning("call-recorder archive: %s", exc)
+                outcome = {"ok": False, "error": "Could not transcribe on the recording machine."}
+            with _TRANSCRIPTION_LOCK:
+                job.update(outcome, state="ready" if outcome.get("ok") else "failed")
+        return outcome
+    return await asyncio.to_thread(_force)
 
 
 # The plugin is imported by the dashboard process once, at startup: this is where

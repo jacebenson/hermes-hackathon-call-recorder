@@ -45,10 +45,12 @@ const mb = (n) => ((n || 0) / 1048576).toFixed(1) + ' MB'
 const friendlyName = (name) => {
   const m = /^call-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})\.mkv$/.exec(String(name || ''))
   if (!m) return String(name || '')
-  const when = new Date(
+  // The name is UTC, one clock for every platform. Parse it as UTC and let the
+  // browser render it in this user's timezone.
+  const when = new Date(Date.UTC(
     Number(m[1]), Number(m[2]) - 1, Number(m[3]),
     Number(m[4]), Number(m[5]), Number(m[6])
-  )
+  ))
   if (isNaN(when.getTime())) return name
   const now = new Date()
   const time = when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
@@ -78,16 +80,20 @@ const checked = (res) => {
 }
 
 const announcedJobs = new Map()
-const notifyTranscription = (job) => {
+const transcriptionPhase = (job) => ['queued', 'running'].includes(job.state)
+  ? 'running' : [job.state, job.engine || '', job.both_failed || false].join(':')
+const notifyTranscription = (job, force = false) => {
   if (!job) return
-  const phase = ['queued', 'running'].includes(job.state) ? 'running' : job.state
-  if (announcedJobs.get(job.file) === phase) return
+  const phase = transcriptionPhase(job)
+  if (!force && announcedJobs.get(job.file) === phase) return
   announcedJobs.set(job.file, phase)
   host.notify({
     kind: job.ok === false ? 'error' : 'info',
     message: 'call-recorder: ' + (job.ok === false
-      ? (job.error || 'transcription failed')
-      : job.state === 'ready' && job.ok === true ? 'transcript ready' : 'transcribing…')
+      ? (job.both_failed ? 'live pass and Whisper re-pass both failed: ' : '') + (job.error || 'transcription failed')
+      : job.state === 'ready' && job.ok === true
+        ? 'transcript ready' + (job.engine === 'live' ? ' from live pass' : job.engine === 'gpu' ? ' from Whisper re-pass' : '')
+        : 'transcribing…')
   })
 }
 const useTranscriptionNotices = (st, qc) => {
@@ -95,7 +101,7 @@ const useTranscriptionNotices = (st, qc) => {
     for (const job of st.transcriptions || []) {
       const previous = announcedJobs.get(job.file)
       notifyTranscription(job)
-      if (previous !== job.state && ['ready', 'failed'].includes(job.state)) {
+      if (previous !== transcriptionPhase(job) && ['ready', 'failed'].includes(job.state)) {
         qc.invalidateQueries({ queryKey: [ID, 'recordings'] })
       }
     }
@@ -330,7 +336,10 @@ function RecorderPane({ ctx }) {
             ? { ...old, items: (old.items || []).map((r) => r.file === body.file ? { ...r, title: res.title } : r) } : old)
         }
         if (path === '/stop') notifyTranscription(res.transcription)
-        if (path === '/transcribe') host.notify({ kind: 'info', message: 'call-recorder: transcript ready' })
+        if (path === '/transcribe') {
+          notifyTranscription({ ...res, file: body.file, state: 'ready' }, true)
+          qc.invalidateQueries({ queryKey: [ID, 'transcript', res.path] })
+        }
         qc.invalidateQueries({ queryKey: [ID] })
         return res  // never hold the button on a refetch
       } catch (e) {
@@ -599,6 +608,14 @@ function RecorderPane({ ctx }) {
                                         jsxs('div', {
                                           className: 'flex items-center gap-1',
                                           children: [
+                                            jsx(Button, {
+                                              size: 'sm',
+                                              variant: 'secondary',
+                                              disabled: busy,
+                                              title: 'Replace this transcript with a cleaner Whisper re-pass',
+                                              onClick: () => call('/transcribe', { file: r.file }),
+                                              children: 'Transcribe'
+                                            }),
                                             jsx(Button, {
                                               size: 'sm',
                                               variant: 'secondary',

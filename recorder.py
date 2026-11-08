@@ -270,7 +270,9 @@ class Recorder:
             return {"ok": True, "already": True, **self.status()}
 
         src = self.sources()
-        stamp = time.strftime("%Y%m%d-%H%M%S")
+        # UTC on purpose: the name is one clock for every platform, and the pane
+        # converts it to the reader's timezone when it shows it.
+        stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
         unit = f"{UNIT_PREFIX}{stamp}"
         out = f"{self.rec_dir()}/call-{stamp}.mkv"
         self.ok(f"mkdir -p {shlex.quote(self.rec_dir())}")
@@ -471,7 +473,9 @@ class Recorder:
     def start_live(self, model: str = "", ld_library_path: str = "") -> dict:
         if not self.live_available():
             return {"ok": False, "error": "live transcription is not configured"}
-        env = ""
+        source = self.state().get("file")
+        output = str(Path(source).with_suffix(".live.txt")) if source else f"{self.rec_dir()}/live.txt"
+        env = f" -E LIVE_OUT={shlex.quote(output)}"
         chosen_model = model or self.whisper_model
         if chosen_model:
             env += f" -E WHISPER_MODEL={shlex.quote(chosen_model)}"
@@ -489,7 +493,14 @@ class Recorder:
 
     def transcript_tail(self, lines: int = 60) -> list[str]:
         path = f"{self.rec_dir()}/live.txt"
-        out = self.run(f"tail -n {int(lines)} {shlex.quote(path)} 2>/dev/null")[1]
+        state = self.state()
+        if state.get("file") and self.unit_active(state.get("unit")):
+            current = shlex.quote(str(Path(state["file"]).with_suffix(".live.txt")))
+            command = (f"if [ -f {current} ]; then tail -n {int(lines)} {current}; "
+                       f"else tail -n {int(lines)} {shlex.quote(path)}; fi 2>/dev/null")
+        else:
+            command = f"tail -n {int(lines)} {shlex.quote(path)} 2>/dev/null"
+        out = self.run(command)[1]
         # The file carries "=== live started …" section markers; they are not speech.
         return [line for line in out.splitlines()
                 if line.strip() and not line.strip().startswith("===")]
@@ -518,18 +529,21 @@ class Recorder:
                 return {"ok": False, "error": "outside the recordings directory"}
             target = paths.join(directory, name)
             transcript = target[:-4] + ".transcript.md"
+            live = target[:-4] + ".live.txt"
             if windows:
                 from capture_windows_wasapi import _q
                 command = (f"try {{ if (!(Test-Path -LiteralPath {_q(target)} -PathType Leaf)) "
                            "{ Write-Output 'Recording not found.'; exit 3 }; "
                            f"if (Test-Path -LiteralPath {_q(transcript)}) {{ "
                            f"Remove-Item -LiteralPath {_q(transcript)} -ErrorAction Stop }}; "
+                           f"if (Test-Path -LiteralPath {_q(live)}) {{ "
+                           f"Remove-Item -LiteralPath {_q(live)} -ErrorAction Stop }}; "
                            f"Remove-Item -LiteralPath {_q(target)} -ErrorAction Stop; "
                            "Write-Output 'deleted' } catch { Write-Output 'Permission denied or file in use.'; exit 1 }")
             else:
                 command = (f"if [ ! -f {shlex.quote(target)} ]; then "
                            "printf 'Recording not found.'; exit 3; fi; "
-                           f"rm -f -- {shlex.quote(transcript)} && rm -- {shlex.quote(target)} && echo deleted")
+                           f"rm -f -- {shlex.quote(transcript)} {shlex.quote(live)} && rm -- {shlex.quote(target)} && echo deleted")
             code, out = self.run(command, timeout=60)
         except (OSError, RuntimeError):
             return {"ok": False, "error": "Could not reach the recording machine to delete the recording."}
@@ -540,7 +554,7 @@ class Recorder:
         if code != 0 or "deleted" not in out:
             error = "Permission denied or recording is in use." if "permission" in out.lower() else "Could not delete that recording on the recording machine."
             return {"ok": False, "error": error}
-        return {"ok": True, "removed": [name, paths.basename(transcript)]}
+        return {"ok": True, "removed": [name, paths.basename(transcript), paths.basename(live)]}
 
     # -- scripts ------------------------------------------------------------ #
 

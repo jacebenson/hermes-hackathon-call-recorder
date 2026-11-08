@@ -125,4 +125,27 @@ tree = render('call-recorder-strip')
 assert.equal(nodes(tree).find(n => n.props['aria-label'] === 'Toggle live transcript').props['aria-expanded'], false)
 assert(nodes(tree).some(n => String(n.props.children).includes('strip words')))
 assert(!nodes(tree).some(n => n.props.children === 'them'))
+for (const [engine, wording] of [['live', 'live pass'], ['gpu', 'Whisper re-pass']]) {
+  reset(); data = { status: { transcriptions: [{ file: 'engine-' + engine, state: 'ready', ok: true, engine }] } }
+  render('call-recorder-pane')
+  assert(notes.some(n => n.message.includes('transcript ready from ' + wording)))
+}
+reset(); data = { status: { transcriptions: [{ file: 'both-failed', state: 'failed', ok: false, both_failed: true, error: 'disk full' }] } }
+render('call-recorder-pane')
+assert(notes.some(n => n.kind === 'error' && n.message.includes('live pass and Whisper re-pass both failed') && n.message.includes('disk full')))
+assert(!notes.some(n => n.message.includes('transcript ready')))
+reset(); data = { status: { transcriptions: [{ file: 'same-file', state: 'ready', ok: true, engine: 'live' }] } }
+render('call-recorder-pane')
+notes.length = 0
+data.status.transcriptions[0].engine = 'gpu'
+render('call-recorder-pane')
+assert(notes.some(n => n.message.includes('Whisper re-pass')))
+reset(); data = { status: {}, recordings: { items: [{ file: 'quality', name: 'call-20260101-120000.mkv', title: 'Quality target', transcript: 'quality.transcript.md' }] } }
+tree = render('call-recorder-pane')
+nodes(tree).find(n => n.type === 'button' && nodes(n).some(c => c.props.children === 'Quality target')).props.onClick()
+response = { ok: true, engine: 'gpu', segments: 5, path: 'quality.transcript.md' }
+await button(render('call-recorder-pane'), 'Transcribe').props.onClick()
+assert.equal(requests[0].path, '/transcribe')
+assert.equal(requests[0].options.body.file, 'quality')
+assert(notes.some(n => n.message.includes('transcript ready from Whisper re-pass')))
 console.log('Desktop behavior checks passed.')
