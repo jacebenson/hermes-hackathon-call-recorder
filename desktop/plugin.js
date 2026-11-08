@@ -41,6 +41,25 @@ const elapsedNow = (status) => {
 
 const mb = (n) => ((n || 0) / 1048576).toFixed(1) + ' MB'
 
+// Recordings are named call-YYYYMMDD-HHMMSS.mkv: sortable, unreadable. Show the date.
+const friendlyName = (name) => {
+  const m = /^call-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})\.mkv$/.exec(String(name || ''))
+  if (!m) return String(name || '')
+  const when = new Date(
+    Number(m[1]), Number(m[2]) - 1, Number(m[3]),
+    Number(m[4]), Number(m[5]), Number(m[6])
+  )
+  if (isNaN(when.getTime())) return name
+  const now = new Date()
+  const time = when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  if (when.toDateString() === now.toDateString()) return 'Today · ' + time
+  const sameYear = when.getFullYear() === now.getFullYear()
+  const day = when.toLocaleDateString([], sameYear
+    ? { month: 'short', day: 'numeric' }
+    : { year: 'numeric', month: 'short', day: 'numeric' })
+  return day + ' · ' + time
+}
+
 const parseLive = (line) => {
   const m = /^\[(\d\d:\d\d:\d\d)\]\s+(you|them)>\s*(.*)$/.exec(line)
   return m ? { t: m[1], who: m[2], text: m[3] } : { t: '', who: '', text: line }
@@ -450,7 +469,7 @@ function RecorderPane({ ctx }) {
                       className:
                         'flex w-full items-center justify-between gap-2 px-2 py-1 text-left text-[0.6875rem] hover:bg-(--chrome-action-hover)',
                       children: [
-                        jsx('span', { className: 'truncate', children: r.name.replace(/^call-|\.mkv$/g, '') }),
+                        jsx('span', { className: 'truncate', children: friendlyName(r.name) }),
                         jsxs('span', {
                           className: 'shrink-0 text-(--ui-text-quaternary)',
                           children: [
