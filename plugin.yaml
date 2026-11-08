@@ -1,5 +1,5 @@
 name: call-recorder
-version: "0.9.3"
+version: "0.9.4"
 description: Record both sides of a call (system audio + mic) and transcribe it. Ships
   a record button in the composer, a status chip, and a pane with the live transcript,
   the finished recordings and their transcripts.

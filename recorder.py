@@ -15,6 +15,7 @@ import json
 import re
 import shlex
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -367,15 +368,32 @@ class Recorder:
     # -- levels -------------------------------------------------------------- #
 
     def mic_level(self, fresh: bool = False) -> float | None:
-        """Current microphone level in dB, sampled for a second at most every 10s.
+        """Microphone level in dB, sampled in the background, never on the caller.
 
-        A recording can be running perfectly while the microphone is muted, which is
-        indistinguishable from working unless something actually listens.
+        A recording can run perfectly while the microphone is muted, so this has to
+        be measured - but a one-second capture inside /status turned every poll into
+        a one-second wait. The sample runs on a thread and status returns the value
+        it already has.
         """
         now = time.time()
         cached = getattr(self, "_mic_level", None)
-        if cached and not fresh and now - cached[1] < 10:
+        if cached and now - cached[1] < 10:
             return cached[0]
+        if not getattr(self, "_mic_sampling", False):
+            self._mic_sampling = True
+
+            def _sample() -> None:
+                try:
+                    self._mic_level = (self._measure_mic(), time.time())
+                finally:
+                    self._mic_sampling = False
+
+            threading.Thread(target=_sample, daemon=True).start()
+        return cached[0] if cached else None
+
+    def _measure_mic(self) -> float | None:
+        """One second of the microphone, measured."""
+        now = time.time()
         device = self.state().get("mic") or "easyeffects_source"
         if self.os_name == "windows":
             command = (f'& ffmpeg -hide_banner -nostdin -f dshow -i audio="{device}" '
@@ -386,10 +404,7 @@ class Recorder:
         code, out = self.run(command, timeout=15)
         level = None
         match = re.search(r"mean_volume:\s*(-?\d+(?:\.\d+)?) dB", out)
-        if match:
-            level = float(match.group(1))
-        self._mic_level = (level, now)
-        return level
+        return float(match.group(1)) if match else None
 
     # -- automation ---------------------------------------------------------- #
 

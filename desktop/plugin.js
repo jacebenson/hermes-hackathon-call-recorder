@@ -272,7 +272,7 @@ function RecorderPane({ ctx }) {
       setBusy(true)
       try {
         await ctx.rest(path, { method: 'POST', body: body || {} })
-        await qc.invalidateQueries({ queryKey: [ID] })
+        qc.invalidateQueries({ queryKey: [ID] })  // never hold the button on a refetch
       } catch (e) {
         host.notify({ kind: 'error', message: 'call-recorder: ' + (e && e.message ? e.message : e) })
       } finally {
