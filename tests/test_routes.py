@@ -7,6 +7,9 @@ from test_settings import plugin_api as api
 
 class StopTests(unittest.TestCase):
     def setUp(self):
+        upload = patch.object(api, '_store', return_value={'ok': True, 'stored': True})
+        upload.start()
+        self.addCleanup(upload.stop)
         api._TRANSCRIPTION_JOBS.clear() if hasattr(api, '_TRANSCRIPTION_JOBS') else None
         self.rec = Mock(host='test')
         self.rec.status.return_value = {'recording': False}

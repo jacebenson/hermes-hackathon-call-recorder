@@ -139,6 +139,7 @@ class Recorder:
         self.os_name = (os_name or "linux").lower()
         #: CUDA library path for the live transcriber (detected, not configured).
         self.ld_library_path = ""
+        self._transcription: dict = {}
 
     def home_dir(self) -> str:
         """The target's $HOME, asked once."""

@@ -40,6 +40,7 @@ import sys
 if str(_PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(_PLUGIN_ROOT))
 
+from recording_library import RecordingLibrary  # noqa: E402
 from platforms import readiness as platform_readiness, diagnose  # noqa: E402
 from transcribe import transcribe as run_transcription, transcribe_from_live  # noqa: E402
 from recorder import (  # noqa: E402
@@ -148,6 +149,7 @@ def recorder() -> Recorder:
         auto_stop_seconds=cfg["auto_stop_seconds"],
     )
     live.ld_library_path = transc.get("ld_library_path", "")
+    live._transcription = dict(transc)
     return live
 
 
@@ -213,8 +215,30 @@ def resolved_transcription() -> dict:
     return result
 
 
+def action_recorder(path: str, machine: str = ""):
+    target = RecordingLibrary().target(path, machine)
+    if target:
+        return target[0]
+    rec = recorder()
+    if machine and machine != (rec.host or socket.gethostname()):
+        raise ValueError("Capture machine changed. Refresh the recordings list.")
+    return rec
+
+
+def _store(rec, path: str) -> dict:
+    result = RecordingLibrary().store(rec, path)
+    if not result.get("ok"):
+        _log.warning("call-recorder upload: %s", result.get("error"))
+    return result
+
+
 def _transcribe(rec, path: str) -> dict:
-    transc = resolved_transcription()
+    # Stored actions use the backend runtime, never the currently selected host.
+    if not rec.host and RecordingLibrary().target(path):
+        transc = {**detect_transcription(None),
+                  "live_script": str(_PLUGIN_ROOT / "scripts" / "live.py")}
+    else:
+        transc = rec.__dict__.get("_transcription") or resolved_transcription()
     script = transc.get("live_script") or ""
     archive = script.replace("live.py", "archive.py") if script.endswith("live.py") else ""
     # A machine with no CUDA libraries is CPU only: say so instead of asking Whisper
@@ -242,8 +266,10 @@ def _launch_archive(worker) -> None:
 def _after_stop(rec, result: dict) -> dict:
     """Publish live speech first, or queue one archive fallback per recording."""
     path = result.get("file")
-    if not result.get("ok") or not path or not settings()["transcribe"]:
+    if not result.get("ok") or not path:
         return result
+    if not settings()["transcribe"]:
+        return {**result, "upload": _store(rec, path)}
     key = (rec.host or "local", path)
     with _TRANSCRIPTION_LOCK:
         if key in _TRANSCRIPTION_JOBS:
@@ -264,7 +290,12 @@ def _after_stop(rec, result: dict) -> dict:
         with _TRANSCRIPTION_LOCK:
             if live.get("ok"):
                 job.update(live, state="ready")
-                return {**result, "transcription": dict(job)}
+        if live.get("ok"):
+            upload = _store(rec, path)
+            with _TRANSCRIPTION_LOCK:
+                job["upload"] = upload
+            return {**result, "transcription": dict(job)}
+        with _TRANSCRIPTION_LOCK:
             job["live_error"] = live.get("error", "No usable live transcript.")
 
     def worker():
@@ -283,6 +314,10 @@ def _after_stop(rec, result: dict) -> dict:
                 job.update(outcome)
                 job["state"] = "ready" if outcome.get("ok") else "failed"
                 job["both_failed"] = not bool(outcome.get("ok"))
+            # Even a failed transcript pass must not strand the finished audio.
+            upload = _store(rec, path)
+            with _TRANSCRIPTION_LOCK:
+                job["upload"] = upload
 
     try:
         _launch_archive(worker)
@@ -391,8 +426,8 @@ async def post_keep() -> dict:
 
 
 @router.get("/title")
-async def get_title(file: str) -> dict:
-    return await asyncio.to_thread(lambda: recorder().get_title(file))
+async def get_title(file: str, machine: str = "") -> dict:
+    return await asyncio.to_thread(lambda: action_recorder(file, machine).get_title(file))
 
 
 @router.post("/title")
@@ -404,7 +439,7 @@ async def post_title(body: dict) -> dict:
         return {"ok": False, "error": str(exc)}
     if not isinstance(body.get("file"), str) or not body["file"]:
         return {"ok": False, "error": "file is required"}
-    return await asyncio.to_thread(lambda: recorder().set_title(body["file"], title))
+    return await asyncio.to_thread(lambda: action_recorder(body["file"], body.get("machine", "")).set_title(body["file"], title))
 
 
 @router.post("/delete")
@@ -415,7 +450,11 @@ async def post_delete(body: dict) -> dict:
         return {"ok": False, "error": "file is required"}
     def _delete():
         try:
-            return recorder().delete_recording(path)
+            library = RecordingLibrary()
+            with_library = library.delete(path, body.get("machine", ""))
+            if with_library is not None:
+                return with_library
+            return action_recorder(path, body.get("machine", "")).delete_recording(path)
         except Exception as exc:
             _log.warning("call-recorder delete: %s", exc)
             return {"ok": False, "error": "Could not reach the recording machine to delete the recording."}
@@ -456,14 +495,17 @@ async def get_transcript(lines: int = 60) -> dict:
 @router.get("/recordings")
 async def get_recordings(limit: int = 20) -> dict:
     def _list() -> dict:
-        return {"ok": True, "items": recorder().recordings(limit)}
+        library = RecordingLibrary()
+        items = library.recordings(recorder(), limit)
+        library.schedule_retry()
+        return {"ok": True, "items": items}
     return await asyncio.to_thread(_list)
 
 
 @router.get("/transcript/read")
-async def read_transcript(path: str) -> dict:
+async def read_transcript(path: str, machine: str = "") -> dict:
     def _read() -> dict:
-        return {"ok": True, "markdown": recorder().read_transcript(path)}
+        return {"ok": True, "markdown": action_recorder(path, machine).read_transcript(path)}
     return await asyncio.to_thread(_read)
 
 
@@ -475,7 +517,7 @@ async def post_transcribe(body: dict) -> dict:
         return {"ok": False, "error": "file is required"}
 
     def _force():
-        rec = recorder()
+        rec = action_recorder(path, body.get("machine", ""))
         key = (rec.host or "local", path)
         with _TRANSCRIPTION_LOCK:
             job = {"file": path, "state": "running", "ok": None}
@@ -489,6 +531,8 @@ async def post_transcribe(body: dict) -> dict:
                 outcome = {"ok": False, "error": "Could not transcribe on the recording machine."}
             with _TRANSCRIPTION_LOCK:
                 job.update(outcome, state="ready" if outcome.get("ok") else "failed")
+            if outcome.get("ok") and (rec.host or not RecordingLibrary().target(path)):
+                job["upload"] = _store(rec, path)
         return outcome
     return await asyncio.to_thread(_force)
 

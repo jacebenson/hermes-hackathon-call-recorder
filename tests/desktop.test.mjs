@@ -88,7 +88,7 @@ assert.equal(nodes(tree).find(n => n.props['aria-label'] === 'Toggle live transc
 assert(nodes(tree).some(n => String(n.props.children).includes('current words')))
 assert(!nodes(tree).some(n => n.props.ref))
 assert(button(tree, 'Stop'))
-assert(nodes(tree).some(n => n.props.children === 'recordings'))
+assert(nodes(tree).some(n => n.props.children === 'Recordings'))
 values = [] // Remount within the same module session.
 assert.equal(nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'Toggle live transcript').props['aria-expanded'], false)
 reset(); data = { status: {}, recordings: { items: [{ file: 'delete-me', name: 'call-20260101-120000.mkv', title: 'Delete target' }] } }
@@ -169,4 +169,64 @@ for (const host of ['local (hermes-host)', 'audio-laptop']) {
   assert(!nodes(tree).some(n => n.props.children === 'local'))
   assert(nodes(tree).some(n => String(n.props.children).includes('tiny.en on cpu')))
 }
+// Backend library rows retain their own machine even when capture settings change.
+for (const stored of [true, false]) {
+  reset()
+  const file = stored ? '/library/original/call-20260101-120000.mkv' : '/calls/call-20260101-120000.mkv'
+  const transcript = file.replace('.mkv', '.transcript.md')
+  data = { status: {}, config: { host_label: 'new-capture-host' }, recordings: { items: [{
+    file, transcript, name: 'call-20260101-120000.mkv', title: 'Library item',
+    machine: 'original-capture-host', stored, upload_error: stored ? '' : 'Copy failed: disk full'
+  }] } }
+  tree = render('call-recorder-pane')
+  assert(nodes(tree).some(n => n.props.children === 'Recordings'))
+  const row = nodes(tree).find(n => n.type === 'button' && nodes(n).some(c => c.props.children === 'Library item'))
+  const rowText = nodes(row).flatMap(n => [n.props.children].flat(Infinity)).filter(v => typeof v === 'string').join('')
+  assert(rowText.includes('original-capture-host'))
+  assert(rowText.includes(stored ? 'stored' : 'remote-only'))
+  assert(!rowText.includes('new-capture-host'))
+  if (!stored) {
+    assert(!rowText.includes(' · stored'))
+    assert(nodes(tree).some(n => n.props.children === 'Copy failed: disk full'))
+  }
+  row.props.onClick()
+  tree = render('call-recorder-pane')
+  const transcriptView = nodes(tree).find(n => typeof n.type === 'function' && n.props.path === transcript)
+  assert.equal(transcriptView.props.machine, 'original-capture-host')
+  response = { ok: true, markdown: '# full transcript' }
+  await button(tree, '→ chat').props.onClick()
+  assert.equal(requests[0].path, '/transcript/read?path=' + encodeURIComponent(transcript) + '&machine=original-capture-host')
+  requests.length = 0
+  response = { ok: true }
+  await button(tree, 'Transcribe').props.onClick()
+  assert.equal(requests[0].options.body.file, file)
+  assert.equal(requests[0].options.body.machine, 'original-capture-host')
+  requests.length = 0
+  button(render('call-recorder-pane'), 'Rename').props.onClick()
+  let titleInput = nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'Recording title')
+  titleInput.props.onChange({ target: { value: 'Renamed stored item' } })
+  titleInput = nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'Recording title')
+  response = { ok: true, title: 'Renamed stored item' }
+  await titleInput.props.onKeyDown({ key: 'Enter', preventDefault() {} })
+  assert.equal(requests[0].options.body.machine, 'original-capture-host')
+  assert.equal(requests[0].options.body.file, file)
+  requests.length = 0
+  button(render('call-recorder-pane'), 'delete').props.onClick()
+  await button(render('call-recorder-pane'), 'confirm').props.onClick()
+  assert.equal(requests[0].options.body.file, file)
+  assert.equal(requests[0].options.body.machine, 'original-capture-host')
+}
+reset()
+data = { status: {}, recordings: { items: ['backend', 'remote'].map(machine => ({
+  file: '/same/call-20260101-120000.mkv', name: 'call-20260101-120000.mkv', title: machine + ' item', machine,
+  stored: machine === 'backend'
+})) } }
+tree = render('call-recorder-pane')
+nodes(tree).find(n => n.type === 'button' && nodes(n).some(c => c.props.children === 'remote item')).props.onClick()
+tree = render('call-recorder-pane')
+assert.equal(nodes(tree).filter(n => n.props.children === 'Rename').length, 1)
+button(tree, 'delete').props.onClick()
+response = { ok: true }
+await button(render('call-recorder-pane'), 'confirm').props.onClick()
+assert.deepEqual(data.recordings.items.map(r => r.machine), ['backend'])
 console.log('Desktop behavior checks passed.')

@@ -100,10 +100,23 @@ first. A missing Whisper runtime means recording only, not a broken connection.
 * Background capture uses a `systemd --user` unit on Linux or a scheduled task and
   Python process on Windows. Capture stops with the recording. A watcher thread
   polls for calls when auto-start or auto-stop is enabled.
-* Transcription stays on the recording machine, with no cloud transcription,
-  telemetry or stored credentials. Whisper fetches a model if none is present.
+* Transcription runs on the capture machine before upload, or on the backend for
+  stored recordings, with no cloud transcription, telemetry or stored credentials.
+  Whisper fetches a model if none is present.
   Files created include the `.mkv`, `.transcript.md`, `.live.txt`, `.titles.json`
-  and small state files. Recordings and their sidecars stay on the recording machine.
+  and small state files. After stop and transcript finalization, remote recordings
+  and their sidecars are copied over SSH to the Hermes backend at
+  `$HERMES_HOME/plugin-data/call-recorder/<machine>/`, defaulting to
+  `~/.hermes/plugin-data/call-recorder/<machine>/`. Sources stay on the capture
+  machine. Local capture is indexed without copying its files.
+* The Recordings list combines backend history with files only on the selected
+  capture machine, newest first. Each row names the capture machine and says
+  `stored` or `remote-only`. Failed copies show their error and retry on list
+  refresh. Per-file receipts prevent successful copies from repeating, including
+  after a backend restart. Stored actions use the backend copy, so a new Whisper
+  pass on a stored recording requires Whisper on the backend. Deleting a stored
+  recording also removes its original capture file and sidecars. If that machine
+  cannot be reached, deletion reports the failure and keeps the stored copy.
 
 ## Limits
 

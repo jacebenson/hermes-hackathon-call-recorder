@@ -16,6 +16,12 @@ class LiveTranscriptTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
+        home = patch.dict('os.environ', {'HERMES_HOME': self.tmp.name})
+        home.start()
+        self.addCleanup(home.stop)
+        upload = patch.object(api, '_store', return_value={'ok': True, 'stored': True})
+        upload.start()
+        self.addCleanup(upload.stop)
         self.source = Path(self.tmp.name) / 'call-20261108-201556.mkv'
         self.live = self.source.with_suffix('.live.txt')
         self.output = self.source.with_suffix('.transcript.md')

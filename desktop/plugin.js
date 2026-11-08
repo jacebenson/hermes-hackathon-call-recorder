@@ -15,6 +15,7 @@ import * as sdk from '@hermes/plugin-sdk'
 const { Badge, Button, Input, StatusDot, Switch, cn, host, useQuery, useQueryClient } = sdk
 
 const ID = 'call-recorder'
+const recordingKey = (row) => (row.machine || '') + ':' + row.file
 
 const clock = (s) =>
   String(Math.floor((s || 0) / 60)).padStart(2, '0') + ':' + String((s || 0) % 60).padStart(2, '0')
@@ -231,10 +232,10 @@ function RecordChip({ ctx }) {
   })
 }
 
-function TranscriptView({ ctx, path }) {
+function TranscriptView({ ctx, path, machine }) {
   const doc = useQuery({
-    queryKey: [ID, 'transcript', path],
-    queryFn: () => ctx.rest('/transcript/read?path=' + encodeURIComponent(path), { timeoutMs: 30000 }),
+    queryKey: [ID, 'transcript', path, machine],
+    queryFn: () => ctx.rest('/transcript/read?path=' + encodeURIComponent(path) + '&machine=' + encodeURIComponent(machine || ''), { timeoutMs: 30000 }),
     retry: false,
     staleTime: 60000
   })
@@ -329,12 +330,12 @@ function RecorderPane({ ctx }) {
         const res = checked(await ctx.rest(path, { method: 'POST', body: body || {}, timeoutMs: path === '/transcribe' ? 3600000 : 120000 }))
         if (path === '/delete') {
           qc.setQueryData([ID, 'recordings'], (old) => old
-            ? { ...old, items: (old.items || []).filter((r) => r.file !== body.file) } : old)
+            ? { ...old, items: (old.items || []).filter((r) => recordingKey(r) !== recordingKey(body)) } : old)
           setOpen('')
         }
         if (path === '/title') {
           qc.setQueryData([ID, 'recordings'], (old) => old
-            ? { ...old, items: (old.items || []).map((r) => r.file === body.file ? { ...r, title: res.title } : r) } : old)
+            ? { ...old, items: (old.items || []).map((r) => recordingKey(r) === recordingKey(body) ? { ...r, title: res.title } : r) } : old)
         }
         if (path === '/stop') notifyTranscription(res.transcription)
         if (path === '/transcribe') {
@@ -354,9 +355,9 @@ function RecorderPane({ ctx }) {
 
   // The full transcript belongs in the chat when you want to talk about it; the
   // SDK's composer bus is the supported way to put text in front of the user.
-  const putInComposer = async (path) => {
+  const putInComposer = async (path, machine) => {
     try {
-      const doc = await ctx.rest('/transcript/read?path=' + encodeURIComponent(path), { timeoutMs: 30000 })
+      const doc = await ctx.rest('/transcript/read?path=' + encodeURIComponent(path) + '&machine=' + encodeURIComponent(machine || ''), { timeoutMs: 30000 })
       const text = String((doc && doc.markdown) || '').trim()
       if (!text) {
         host.notify({ kind: 'error', message: 'call-recorder: that transcript is empty' })
@@ -555,7 +556,7 @@ function RecorderPane({ ctx }) {
       }),
       jsx('div', {
         className: 'text-[0.6875rem] uppercase tracking-wide text-(--ui-text-quaternary)',
-        children: 'recordings'
+        children: 'Recordings'
       }),
       jsx('div', {
         className: 'flex flex-col gap-1 overflow-y-auto',
@@ -568,15 +569,24 @@ function RecorderPane({ ctx }) {
                   children: [
                     jsxs('button', {
                       type: 'button',
-                      onClick: () => setOpen(open === r.file ? '' : r.file),
+                      onClick: () => setOpen(open === recordingKey(r) ? '' : recordingKey(r)),
                       className:
                         'flex w-full items-center justify-between gap-2 px-2 py-1 text-left text-[0.6875rem] hover:bg-(--chrome-action-hover)',
                       children: [
-                        jsx('span', { className: 'truncate', children: r.title || friendlyName(r.name) }),
+                        jsxs('span', {
+                          className: 'min-w-0',
+                          children: [
+                            jsx('span', { className: 'block truncate', children: r.title || friendlyName(r.name) }),
+                            jsx('span', {
+                              className: 'block truncate text-(--ui-text-quaternary)',
+                              children: (r.machine || cfg.host_label || cfg.host || 'local') + (r.stored ? ' · stored' : ' · remote-only')
+                            })
+                          ]
+                        }),
                         jsxs('span', {
                           className: 'shrink-0 text-(--ui-text-quaternary)',
                           children: [
-                            r.duration ? clock(Math.round(r.duration)) : '—',
+                            r.duration ? clock(Math.round(r.duration)) : '-',
                             ' · ',
                             mb(r.bytes),
                             r.transcript ? ' · txt' : ''
@@ -584,14 +594,18 @@ function RecorderPane({ ctx }) {
                         })
                       ]
                     }),
-                    open === r.file
+                    r.upload_error ? jsx('div', {
+                      className: 'px-2 py-1 text-[0.6875rem] text-red-500',
+                      children: r.upload_error
+                    }) : null,
+                    open === recordingKey(r)
                       ? jsxs('div', {
                           className: 'border-t border-(--ui-stroke-secondary)',
                           children: [
                             jsxs('div', {
                               className: 'flex items-center gap-2 p-2',
                               children: [
-                                editingTitle === r.file
+                                editingTitle === recordingKey(r)
                                   ? jsx(Input, {
                                       autoFocus: true,
                                       'aria-label': 'Recording title',
@@ -606,14 +620,14 @@ function RecorderPane({ ctx }) {
                                           setEditingTitle('')
                                         } else if (e.key === 'Enter' && !busy) {
                                           e.preventDefault()
-                                          const res = await call('/title', { file: r.file, title: titleDraft })
+                                          const res = await call('/title', { file: r.file, machine: r.machine, title: titleDraft })
                                           if (res) setEditingTitle('')
                                         }
                                       }
                                     })
                                   : jsx(Button, {
                                       size: 'sm', variant: 'ghost', disabled: busy,
-                                      onClick: () => { setEditingTitle(r.file); setTitleDraft(r.title || '') },
+                                      onClick: () => { setEditingTitle(recordingKey(r)); setTitleDraft(r.title || '') },
                                       children: 'Rename'
                                     }),
                                 jsx(Button, {
@@ -623,8 +637,8 @@ function RecorderPane({ ctx }) {
                                   title: 'Delete this recording and its transcript',
                                   // two steps: audio is not recoverable
                                   onClick: () => {
-                                    if (confirmDelete !== r.file) {
-                                      setConfirmDelete(r.file)
+                                    if (confirmDelete !== recordingKey(r)) {
+                                      setConfirmDelete(recordingKey(r))
                                       setTimeout(
                                         () => setConfirmDelete(''),
                                         5000
@@ -632,10 +646,10 @@ function RecorderPane({ ctx }) {
                                       return
                                     }
                                     setConfirmDelete('')
-                                    return call('/delete', { file: r.file })
+                                    return call('/delete', { file: r.file, machine: r.machine })
                                   },
                                   children:
-                                    confirmDelete === r.file ? 'confirm' : 'delete'
+                                    confirmDelete === recordingKey(r) ? 'confirm' : 'delete'
                                 })
                               ]
                             }),
@@ -658,7 +672,7 @@ function RecorderPane({ ctx }) {
                                               variant: 'secondary',
                                               disabled: busy,
                                               title: 'Replace this transcript with a cleaner Whisper re-pass',
-                                              onClick: () => call('/transcribe', { file: r.file }),
+                                              onClick: () => call('/transcribe', { file: r.file, machine: r.machine }),
                                               children: 'Transcribe'
                                             }),
                                             jsx(Button, {
@@ -666,14 +680,14 @@ function RecorderPane({ ctx }) {
                                               variant: 'secondary',
                                               disabled: busy,
                                               title: 'Put the whole transcript in the composer',
-                                              onClick: () => putInComposer(r.transcript),
+                                              onClick: () => putInComposer(r.transcript, r.machine),
                                               children: '→ chat'
                                             })
                                           ]
                                         })
                                       ]
                                     }),
-                                    jsx(TranscriptView, { ctx, path: r.transcript })
+                                    jsx(TranscriptView, { ctx, path: r.transcript, machine: r.machine })
                                   ]
                                 })
                               : jsxs('div', {
@@ -686,7 +700,7 @@ function RecorderPane({ ctx }) {
                                     jsx(Button, {
                                       size: 'sm',
                                       disabled: busy,
-                                      onClick: () => call('/transcribe', { file: r.file }),
+                                      onClick: () => call('/transcribe', { file: r.file, machine: r.machine }),
                                       children: 'Transcribe'
                                     })
                                   ]
@@ -696,7 +710,7 @@ function RecorderPane({ ctx }) {
                       : null
                   ]
                 },
-                r.file
+                recordingKey(r)
               )
             )
           : jsx('div', {
