@@ -137,8 +137,10 @@ class Recorder:
 
     def run(self, command: str, timeout: int = 30) -> tuple[int, str]:
         if self.host:
+            # ssh joins its arguments with spaces and hands the result to the remote
+            # shell, which would then word-split a multi-word command. Quote it once.
             argv = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
-                    self.host, "bash", "-lc", command]
+                    self.host, "bash", "-lc", shlex.quote(command)]
         else:
             argv = ["bash", "-lc", command]
         try:
@@ -400,3 +402,124 @@ def from_settings(settings: dict) -> Recorder:
         live_script=settings.get("live_script"),
         whisper_model=settings.get("whisper_model"),
     )
+
+
+# --------------------------------------------------------------------------- #
+# which machine to record
+# --------------------------------------------------------------------------- #
+
+PROBE_SCRIPT = (
+    'echo HOST=$(uname -n 2>/dev/null || hostname 2>/dev/null); '
+    'command -v pactl >/dev/null 2>&1 && echo PIPEWIRE=1 || echo PIPEWIRE=0; '
+    'command -v ffmpeg >/dev/null 2>&1 && echo FFMPEG=1 || echo FFMPEG=0; '
+    'systemctl --user is-system-running 2>/dev/null | sed "s/^/SYSTEMD=/"; '
+    'pactl get-default-sink 2>/dev/null | sed "s/^/SINK=/"; '
+    'pactl get-default-source 2>/dev/null | sed "s/^/SOURCE=/"; '
+    'true'
+)
+
+
+def probe(host: str | None = None, timeout: int = 8) -> dict:
+    """What a candidate machine can actually do: PipeWire, ffmpeg, a user session, devices.
+
+    The question this answers is "does audio live here?" — because a gateway host
+    usually has no microphone and would record silence without complaining.
+    """
+    rec = Recorder(host=host, state_file="/nonexistent/callrec-probe.json")
+    code, out = rec.run(PROBE_SCRIPT, timeout=timeout)
+    found: dict[str, str] = {}
+    for line in out.splitlines():
+        key, _, value = line.strip().partition("=")
+        if key and key.isupper() and value:
+            found[key] = value.strip()
+    reachable = bool(found.get("HOST"))
+    return {
+        "target": host or "local",
+        "reachable": reachable,
+        "hostname": found.get("HOST"),
+        "pipewire": found.get("PIPEWIRE") == "1",
+        "ffmpeg": found.get("FFMPEG") == "1",
+        "systemd": found.get("SYSTEMD") or "",
+        "sink": found.get("SINK") or None,
+        "source": found.get("SOURCE") or None,
+        "can_record": reachable and found.get("PIPEWIRE") == "1" and found.get("FFMPEG") == "1",
+        "has_audio": bool(found.get("SINK")),
+    }
+
+
+def ssh_aliases(config: str = "~/.ssh/config") -> list[str]:
+    """Concrete host aliases (no wildcards) declared in the user's SSH config."""
+    path = Path(config).expanduser()
+    try:
+        text = path.read_text(errors="replace")
+    except OSError:
+        return []
+    aliases: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        parts = stripped.split()
+        if len(parts) < 2 or parts[0].lower() != "host":
+            continue
+        for alias in parts[1:]:
+            if any(ch in alias for ch in "*?!") or alias.startswith("-"):
+                continue
+            if alias not in aliases:
+                aliases.append(alias)
+    return aliases
+
+
+def detect_candidates(limit: int = 12, timeout: int = 5) -> list[dict]:
+    """Probe the local machine and each SSH alias, and say which ones can record."""
+    candidates = [probe(None, timeout=timeout)]
+    for alias in ssh_aliases()[:limit]:
+        candidates.append(probe(alias, timeout=timeout))
+    return candidates
+
+
+def choose_source(configured_host: str = "", candidates: list[dict] | None = None) -> dict:
+    """Decide which machine to record, and say why.
+
+    * a machine named in settings always wins;
+    * otherwise this machine, when audio actually lives on it;
+    * otherwise the first detected machine that has a mic and a sink.
+
+    Returning the reason matters as much as the choice: "recording beast-1 because
+    the gateway host has no microphone" is a sentence the UI can show.
+    """
+    configured = (configured_host or "").strip()
+    if configured:
+        info = probe(configured)
+        return {"host": configured, "mode": "configured", "probe": info,
+                "why": f"set to {configured} in settings"}
+
+    if candidates is not None:
+        local = candidates[0] if candidates else {}
+        if local.get("has_audio") and local.get("can_record"):
+            return {"host": "", "mode": "local", "probe": local,
+                    "why": "this machine has a microphone and audio output"}
+        for candidate in candidates[1:]:
+            if candidate.get("can_record") and candidate.get("has_audio"):
+                local_name = local.get("hostname") or "this machine"
+                return {"host": candidate["target"], "mode": "auto", "probe": candidate,
+                        "why": f"{local_name} has no audio devices; {candidate['target']} does"}
+        return {"host": "", "mode": "none", "probe": local,
+                "why": "no machine with a microphone was found - set one in settings"}
+
+    # Lazy on purpose: probing every SSH alias costs seconds, and the local answer
+    # is usually the right one.
+    local = probe(None)
+    if local.get("has_audio") and local.get("can_record"):
+        return {"host": "", "mode": "local", "probe": local,
+                "why": "this machine has a microphone and audio output"}
+    for alias in ssh_aliases()[:12]:
+        candidate = probe(alias, timeout=4)
+        if candidate.get("can_record") and candidate.get("has_audio"):
+            local_name = local.get("hostname") or "this machine"
+            return {"host": alias, "mode": "auto", "probe": candidate,
+                    "why": f"{local_name} has no audio devices; {alias} does"}
+    return {"host": "", "mode": "none", "probe": local,
+            "why": "no machine with a microphone was found - set one in settings"}
+
+

@@ -38,7 +38,7 @@ import sys
 if str(_PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(_PLUGIN_ROOT))
 
-from recorder import Recorder  # noqa: E402
+from recorder import Recorder, choose_source, detect_candidates, probe, ssh_aliases  # noqa: E402
 
 router = APIRouter()
 
@@ -113,8 +113,9 @@ def settings() -> dict:
 
 def recorder() -> Recorder:
     cfg = settings()
+    src = resolved_source()
     return Recorder(
-        host=cfg["host"],
+        host=src["host"],
         recordings_dir=cfg["recordings_dir"],
         python=cfg["python"],
         live_script=cfg["live_script"],
@@ -122,6 +123,25 @@ def recorder() -> Recorder:
         auto_start=cfg["auto_start"],
         auto_stop_seconds=cfg["auto_stop_seconds"],
     )
+
+
+_SOURCE_CACHE: dict = {"at": 0.0, "value": None}
+
+
+def resolved_source(force: bool = False) -> dict:
+    """Which machine will be recorded, cached for a minute so routes stay fast."""
+    now = time.time()
+    cached = _SOURCE_CACHE.get("value")
+    if not force and cached and now - float(_SOURCE_CACHE.get("at") or 0) < 60:
+        return cached
+    try:
+        choice = choose_source(settings()["host"])
+    except Exception as exc:  # noqa: BLE001 - never break a route over detection
+        _log.warning("call-recorder: source detection failed: %s", exc)
+        choice = {"host": settings()["host"], "mode": "unknown", "probe": {},
+                  "why": f"detection failed: {exc}"}
+    _SOURCE_CACHE.update({"at": now, "value": choice})
+    return choice
 
 
 _WATCHER_STARTED = False
@@ -153,11 +173,15 @@ def ensure_watcher() -> None:
 
 def _config_payload() -> dict:
     cfg = settings()
+    src = resolved_source()
     rec = recorder()
     code, out = rec.run("echo ok")
     return {
         "ok": code == 0,
-        "host": cfg["host"] or "local",
+        "host": src["host"] or "local",
+        "host_mode": src["mode"],
+        "why": src["why"],
+        "probe": src.get("probe") or {},
         "recordings_dir": cfg["recordings_dir"],
         "transcription": bool(cfg["python"] and cfg["live_script"]),
         "auto_start": cfg["auto_start"],
@@ -198,6 +222,17 @@ async def post_keep() -> dict:
 async def get_call() -> dict:
     """What the target host currently looks like: who is playing, who has the mic."""
     return await asyncio.to_thread(lambda: {"ok": True, **recorder().call_state()})
+
+
+@router.get("/detect")
+async def get_detect() -> dict:
+    """Every machine we could record, and which ones actually have audio."""
+    def _detect() -> dict:
+        candidates = detect_candidates()
+        usable = [c for c in candidates if c.get("can_record") and c.get("has_audio")]
+        return {"ok": True, "chosen": resolved_source(force=True), "usable": usable,
+                "candidates": candidates, "ssh_hosts": ssh_aliases()[:12]}
+    return await asyncio.to_thread(_detect)
 
 
 @router.get("/transcript")

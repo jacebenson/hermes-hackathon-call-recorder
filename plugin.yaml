@@ -1,14 +1,16 @@
 name: call-recorder
-version: "0.2.0"
+version: "0.3.0"
 description: Record both sides of a call (system audio + mic) and transcribe it live
   and after the fact. Ships a composer record button, a status chip and a pane with
   the live transcript and finished recordings.
 config_schema:
   host:
     type: str
-    label: Record this machine
-    description: SSH alias of the machine whose audio to record, e.g. the desktop you
-      sit at. Leave empty to record the machine running Hermes.
+    label: Audio source machine
+    description: Leave this empty. The recorder then uses whichever machine actually
+      has a microphone - this one if it has audio devices, otherwise the first machine
+      in your SSH config that does - and the pane tells you which it picked and why.
+      Set an SSH alias only to override that choice.
     default: ""
   recordings_dir:
     type: str

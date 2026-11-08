@@ -53,13 +53,34 @@ generated from the `config_schema` in `plugin.yaml`. Nothing to hand-edit.
 
 | field | meaning |
 | --- | --- |
-| Record this machine | SSH alias of the machine whose audio to record. Empty records the gateway host itself. |
+| Audio source machine | Leave empty. See below — it finds the machine with the microphone. |
 | Recordings folder | Where the two-track mkv files land, on the recorded machine. |
 | Transcription interpreter | Python on the recorded machine that can import `faster_whisper`. Empty disables transcription; recording still works. |
 | Live transcription script | Path to `live.py` on the recorded machine; `archive.py` must sit beside it. |
 | Start recording automatically | Starts when a call app is both playing audio and capturing the mic. |
 | Stop delay (seconds) | How long to keep recording after the call disappears. `0` never stops automatically. |
 | Check interval (seconds) | How often the recorder looks for a call. |
+
+### Which machine gets recorded
+
+The machine running Hermes is usually not the machine with the microphone — a
+server has no headset. So the recorder works it out instead of asking:
+
+1. A machine named in **Audio source machine** always wins.
+2. Otherwise this machine, if it actually has an audio sink and source.
+3. Otherwise it walks the concrete `Host` aliases in `~/.ssh/config`, probing each
+   for `pactl`, `ffmpeg` and a systemd user session, and takes the first that has
+   audio devices.
+4. Nothing found: it says so in the pane rather than recording silence.
+
+The pane shows the choice and the reason — *"pro-1 has no audio devices; beast-1
+does"* — so there is nothing to guess at. `GET /config` returns the same fields
+(`host`, `host_mode`, `why`, `probe`) and `GET /detect` lists every candidate it
+found.
+
+Recording happens over SSH when the machine is remote: no port opened on it, no
+token to distribute, the SSH key is the credential.
+
 
 Resolution order, highest first: `CALLREC_*` environment variables, then the saved
 settings (`plugins.entries.call-recorder.settings` in `config.yaml`), then an optional

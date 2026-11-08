@@ -5,13 +5,18 @@ Run: python3 -m unittest discover -s tests -v
 
 from __future__ import annotations
 
+import os
+import shlex
+import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import recorder as recorder_mod  # noqa: E402
 from recorder import (  # noqa: E402
     Recorder,
     is_call_app,
@@ -205,6 +210,71 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(status["auto_stop_seconds"], 180)
         self.assertLessEqual(status["pending_stop"], 120)
         self.assertGreater(status["pending_stop"], 100)
+
+
+class DetectionTests(unittest.TestCase):
+    """Which machine gets recorded, and can we explain the choice."""
+
+    @staticmethod
+    def machine(target, audio=True, record=True):
+        return {"target": target, "reachable": True, "hostname": target,
+                "can_record": record, "has_audio": audio, "sink": "sink" if audio else None,
+                "source": "mic" if audio else None}
+
+    def test_a_configured_machine_wins(self):
+        original = recorder_mod.probe
+        recorder_mod.probe = lambda host=None, timeout=8: self.machine(host or "local")
+        try:
+            choice = recorder_mod.choose_source("desktop-1")
+        finally:
+            recorder_mod.probe = original
+        self.assertEqual(choice["host"], "desktop-1")
+        self.assertEqual(choice["mode"], "configured")
+
+    def test_local_wins_when_it_has_audio(self):
+        choice = recorder_mod.choose_source("", candidates=[self.machine("local")])
+        self.assertEqual((choice["mode"], choice["host"]), ("local", ""))
+
+    def test_the_machine_with_a_microphone_is_picked_and_explained(self):
+        choice = recorder_mod.choose_source(
+            "", candidates=[self.machine("gateway", audio=False), self.machine("desk")])
+        self.assertEqual((choice["mode"], choice["host"]), ("auto", "desk"))
+        self.assertIn("gateway has no audio devices", choice["why"])
+        self.assertIn("desk does", choice["why"])
+
+    def test_a_reachable_machine_without_audio_is_not_picked(self):
+        choice = recorder_mod.choose_source(
+            "", candidates=[self.machine("gateway", audio=False), self.machine("server", audio=False)])
+        self.assertEqual(choice["mode"], "none")
+        self.assertIn("set one in settings", choice["why"])
+
+    def test_ssh_commands_are_quoted_once(self):
+        """ssh joins argv with spaces; an unquoted multi-word command word-splits remotely."""
+        rec = Recorder(host="desk", state_file="/nonexistent/x.json")
+        captured = {}
+
+        def fake_run(argv, **kwargs):
+            captured["argv"] = argv
+            return subprocess.CompletedProcess(argv, 0, "ok", "")
+
+        original = recorder_mod.subprocess.run
+        recorder_mod.subprocess.run = fake_run
+        try:
+            rec.run("pactl get-default-sink && echo done")
+        finally:
+            recorder_mod.subprocess.run = original
+        command = captured["argv"][-1]
+        # One shell word means the remote shell sees the whole pipeline intact.
+        self.assertEqual(shlex.split(command), ["pactl get-default-sink && echo done"])
+
+    def test_ssh_alias_parsing_skips_wildcards(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".conf", delete=False) as fh:
+            fh.write("Host desk\n  HostName desk.lan\nHost *.internal\nHost desk other\n")
+            path = fh.name
+        try:
+            self.assertEqual(recorder_mod.ssh_aliases(path), ["desk", "other"])
+        finally:
+            os.unlink(path)
 
 
 if __name__ == "__main__":

@@ -136,7 +136,14 @@ function RecorderPane({ ctx }) {
   const tailRef = useRef(null)
 
   const status = useQuery(statusQuery(ctx))
+  const config = useQuery({
+    queryKey: [ID, 'config'],
+    queryFn: () => ctx.rest('/config', { timeoutMs: 30000 }),
+    staleTime: 60000,
+    retry: false
+  })
   const st = status.data || {}
+  const cfg = config.data || {}
   const recording = !!st.recording
   const liveOn = recording && !!st.live
 
@@ -198,10 +205,16 @@ function RecorderPane({ ctx }) {
           }),
           jsx('span', {
             className: 'text-[0.6875rem] text-(--ui-text-quaternary)',
-            children: recording ? mb(st.bytes) : st.host || ''
+            children: recording ? mb(st.bytes) : st.host || cfg.host || ''
           })
         ]
       }),
+      cfg.why
+        ? jsx('div', {
+            className: 'text-[0.6875rem] leading-snug text-(--ui-text-quaternary)',
+            children: cfg.host_mode === 'auto' ? 'auto: ' + cfg.why : cfg.why
+          })
+        : null,
       jsxs('div', {
         className: 'flex items-center gap-2',
         children: [
