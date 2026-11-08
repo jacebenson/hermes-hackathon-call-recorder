@@ -12,6 +12,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
@@ -35,7 +36,8 @@ def _stub_fastapi() -> None:
 
 
 _stub_fastapi()
-from dashboard import plugin_api  # noqa: E402
+with patch.dict(os.environ, {"CALLREC_AUTO_STOP_SECONDS": "0", "CALLREC_AUTO_START": "false"}):
+    from dashboard import plugin_api  # noqa: E402
 
 
 class SettingsTests(unittest.TestCase):

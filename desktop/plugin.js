@@ -12,7 +12,7 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import * as sdk from '@hermes/plugin-sdk'
 
-const { Badge, Button, StatusDot, Switch, cn, host, useQuery, useQueryClient } = sdk
+const { Badge, Button, Input, StatusDot, Switch, cn, host, useQuery, useQueryClient } = sdk
 
 const ID = 'call-recorder'
 
@@ -72,6 +72,36 @@ const statusQuery = (ctx) => ({
   retry: false
 })
 
+const checked = (res) => {
+  if (!res || res.ok !== true) throw new Error((res && res.error) || 'request failed')
+  return res
+}
+
+const announcedJobs = new Map()
+const notifyTranscription = (job) => {
+  if (!job) return
+  const phase = ['queued', 'running'].includes(job.state) ? 'running' : job.state
+  if (announcedJobs.get(job.file) === phase) return
+  announcedJobs.set(job.file, phase)
+  host.notify({
+    kind: job.ok === false ? 'error' : 'info',
+    message: 'call-recorder: ' + (job.ok === false
+      ? (job.error || 'transcription failed')
+      : job.state === 'ready' && job.ok === true ? 'transcript ready' : 'transcribing…')
+  })
+}
+const useTranscriptionNotices = (st, qc) => {
+  useEffect(() => {
+    for (const job of st.transcriptions || []) {
+      const previous = announcedJobs.get(job.file)
+      notifyTranscription(job)
+      if (previous !== job.state && ['ready', 'failed'].includes(job.state)) {
+        qc.invalidateQueries({ queryKey: [ID, 'recordings'] })
+      }
+    }
+  }, [st.transcriptions, qc])
+}
+
 function ComposerRecordButton({ ctx }) {
   const qc = useQueryClient()
   // The click flips the button immediately; the request catches up. Starting a
@@ -80,6 +110,7 @@ function ComposerRecordButton({ ctx }) {
   const [pending, setPending] = useState(null)
   const status = useQuery(statusQuery(ctx))
   const st = status.data || {}
+  useTranscriptionNotices(st, qc)
   const recording = !!st.recording
   const shownRecording = pending === 'start' ? true : pending === 'stop' ? false : recording
   useTicker(shownRecording && !pending)
@@ -108,29 +139,11 @@ function ComposerRecordButton({ ctx }) {
     setPending(stopping ? 'stop' : 'start')
     try {
       if (stopping) {
-        const res = await ctx.rest('/stop', { method: 'POST', body: {} })
-        const file = res && res.file
-        host.notify({
-          kind: res && res.warning ? 'error' : 'info',
-          message: res && res.warning ? 'call-recorder: ' + res.warning : 'call-recorder: stopped'
-        })
-        if (file) {
-          host.notify({ kind: 'info', message: 'call-recorder: transcribing…' })
-          ctx
-            .rest('/transcribe', { method: 'POST', body: { file }, timeoutMs: 3600000 })
-            .then(() => {
-              host.notify({ kind: 'info', message: 'call-recorder: transcript ready' })
-              qc.invalidateQueries({ queryKey: [ID] })
-            })
-            .catch(() =>
-              host.notify({
-                kind: 'error',
-                message: 'call-recorder: recording saved, transcription failed'
-              })
-            )
-        }
+        const res = checked(await ctx.rest('/stop', { method: 'POST', body: {}, timeoutMs: 120000 }))
+        host.notify({ kind: res.warning ? 'error' : 'info', message: 'call-recorder: ' + (res.warning || 'stopped') })
+        notifyTranscription(res.transcription)
       } else {
-        await ctx.rest('/start', { method: 'POST', body: { live: true } })
+        checked(await ctx.rest('/start', { method: 'POST', body: { live: true } }))
         host.notify({ kind: 'info', message: 'call-recorder: recording' })
         // First recording ever: say where things go, while it matters.
         let seen = true
@@ -248,11 +261,25 @@ function TranscriptView({ ctx, path }) {
   })
 }
 
+// Module memory lasts for this desktop session, including pane remounts.
+const liveCollapsed = { pane: false, strip: false }
+const useLiveDisclosure = (surface) => {
+  const [collapsed, setCollapsed] = useState(() => liveCollapsed[surface])
+  const toggle = () => setCollapsed((old) => { liveCollapsed[surface] = !old; return !old })
+  return [collapsed, toggle]
+}
+const liveSummary = (lines, on) => lines.length
+  ? parseLive(lines[lines.length - 1]).text
+  : on ? 'waiting for speech…' : 'no live transcript'
+
 function RecorderPane({ ctx }) {
   const qc = useQueryClient()
   const [busy, setBusy] = useState(false)
   const [open, setOpen] = useState('')
   const [confirmDelete, setConfirmDelete] = useState('')
+  const [editingTitle, setEditingTitle] = useState('')
+  const [titleDraft, setTitleDraft] = useState('')
+  const [collapsed, toggleLive] = useLiveDisclosure('pane')
   const tailRef = useRef(null)
 
   const status = useQuery(statusQuery(ctx))
@@ -264,6 +291,7 @@ function RecorderPane({ ctx }) {
   })
   const st = status.data || {}
   const cfg = config.data || {}
+  useTranscriptionNotices(st, qc)
   const recording = !!st.recording
   const liveOn = recording && !!st.live
 
@@ -291,8 +319,20 @@ function RecorderPane({ ctx }) {
     async (path, body) => {
       setBusy(true)
       try {
-        await ctx.rest(path, { method: 'POST', body: body || {} })
-        qc.invalidateQueries({ queryKey: [ID] })  // never hold the button on a refetch
+        const res = checked(await ctx.rest(path, { method: 'POST', body: body || {}, timeoutMs: path === '/transcribe' ? 3600000 : 120000 }))
+        if (path === '/delete') {
+          qc.setQueryData([ID, 'recordings'], (old) => old
+            ? { ...old, items: (old.items || []).filter((r) => r.file !== body.file) } : old)
+          setOpen('')
+        }
+        if (path === '/title') {
+          qc.setQueryData([ID, 'recordings'], (old) => old
+            ? { ...old, items: (old.items || []).map((r) => r.file === body.file ? { ...r, title: res.title } : r) } : old)
+        }
+        if (path === '/stop') notifyTranscription(res.transcription)
+        if (path === '/transcribe') host.notify({ kind: 'info', message: 'call-recorder: transcript ready' })
+        qc.invalidateQueries({ queryKey: [ID] })
+        return res  // never hold the button on a refetch
       } catch (e) {
         host.notify({ kind: 'error', message: 'call-recorder: ' + (e && e.message ? e.message : e) })
       } finally {
@@ -423,7 +463,15 @@ function RecorderPane({ ctx }) {
           })
         : null,
       jsx('div', { className: 'h-px bg-(--ui-stroke-secondary)' }),
-      jsx('div', {
+      jsx('button', {
+        type: 'button',
+        'aria-label': 'Toggle live transcript',
+        'aria-expanded': !collapsed,
+        onClick: toggleLive,
+        className: 'truncate text-left text-[0.6875rem] text-(--ui-text-quaternary)',
+        children: (collapsed ? '▸ Live · ' : '▾ Live') + (collapsed ? liveSummary(lines, liveOn) : '')
+      }),
+      collapsed ? null : jsx('div', {
         ref: tailRef,
         className:
           'min-h-0 flex-1 overflow-y-auto rounded border border-(--ui-stroke-secondary) p-2 font-mono text-[0.6875rem] leading-relaxed',
@@ -470,7 +518,7 @@ function RecorderPane({ ctx }) {
                       className:
                         'flex w-full items-center justify-between gap-2 px-2 py-1 text-left text-[0.6875rem] hover:bg-(--chrome-action-hover)',
                       children: [
-                        jsx('span', { className: 'truncate', children: friendlyName(r.name) }),
+                        jsx('span', { className: 'truncate', children: r.title || friendlyName(r.name) }),
                         jsxs('span', {
                           className: 'shrink-0 text-(--ui-text-quaternary)',
                           children: [
@@ -486,6 +534,57 @@ function RecorderPane({ ctx }) {
                       ? jsxs('div', {
                           className: 'border-t border-(--ui-stroke-secondary)',
                           children: [
+                            jsxs('div', {
+                              className: 'flex items-center gap-2 p-2',
+                              children: [
+                                editingTitle === r.file
+                                  ? jsx(Input, {
+                                      autoFocus: true,
+                                      'aria-label': 'Recording title',
+                                      maxLength: 120,
+                                      value: titleDraft,
+                                      disabled: busy,
+                                      placeholder: friendlyName(r.name),
+                                      onChange: (e) => setTitleDraft(e.target.value),
+                                      onKeyDown: async (e) => {
+                                        if (e.key === 'Escape') {
+                                          e.preventDefault()
+                                          setEditingTitle('')
+                                        } else if (e.key === 'Enter' && !busy) {
+                                          e.preventDefault()
+                                          const res = await call('/title', { file: r.file, title: titleDraft })
+                                          if (res) setEditingTitle('')
+                                        }
+                                      }
+                                    })
+                                  : jsx(Button, {
+                                      size: 'sm', variant: 'ghost', disabled: busy,
+                                      onClick: () => { setEditingTitle(r.file); setTitleDraft(r.title || '') },
+                                      children: 'Rename'
+                                    }),
+                                jsx(Button, {
+                                  size: 'sm',
+                                  variant: 'ghost',
+                                  disabled: busy,
+                                  title: 'Delete this recording and its transcript',
+                                  // two steps: audio is not recoverable
+                                  onClick: () => {
+                                    if (confirmDelete !== r.file) {
+                                      setConfirmDelete(r.file)
+                                      setTimeout(
+                                        () => setConfirmDelete(''),
+                                        5000
+                                      )
+                                      return
+                                    }
+                                    setConfirmDelete('')
+                                    return call('/delete', { file: r.file })
+                                  },
+                                  children:
+                                    confirmDelete === r.file ? 'confirm' : 'delete'
+                                })
+                              ]
+                            }),
                             r.transcript
                               ? jsxs('div', {
                                   children: [
@@ -507,27 +606,6 @@ function RecorderPane({ ctx }) {
                                               title: 'Put the whole transcript in the composer',
                                               onClick: () => putInComposer(r.transcript),
                                               children: '→ chat'
-                                            }),
-                                            jsx(Button, {
-                                              size: 'sm',
-                                              variant: 'ghost',
-                                              disabled: busy,
-                                              title: 'Delete this recording and its transcript',
-                                              // two steps: audio is not recoverable
-                                              onClick: () => {
-                                                if (confirmDelete !== r.file) {
-                                                  setConfirmDelete(r.file)
-                                                  setTimeout(
-                                                    () => setConfirmDelete(''),
-                                                    5000
-                                                  )
-                                                  return
-                                                }
-                                                setConfirmDelete('')
-                                                call('/delete', { file: r.file })
-                                              },
-                                              children:
-                                                confirmDelete === r.file ? 'confirm' : 'delete'
                                             })
                                           ]
                                         })
@@ -570,6 +648,7 @@ function RecorderPane({ ctx }) {
 
 
 function LiveStrip({ ctx }) {
+  const [collapsed, toggleLive] = useLiveDisclosure('strip')
   const status = useQuery(statusQuery(ctx))
   const st = status.data || {}
   const on = !!st.recording && !!st.live
@@ -584,13 +663,20 @@ function LiveStrip({ ctx }) {
   const lines = ((live.data && live.data.lines) || [])
     .filter((line) => !String(line).trim().startsWith('==='))
     .slice(-3)
-  return jsx('div', {
+  return jsxs('div', {
     className: cn(
       // Full width so the timestamp sits at the left edge, not inset with the composer.
       'mb-1 w-full rounded-md border-l-2 border-red-500/70',
       'bg-(--card) py-1 pl-1.5 pr-2 font-mono text-[0.6875rem] leading-snug'
     ),
-    children: lines.length
+    children: [jsx('button', {
+      type: 'button',
+      'aria-label': 'Toggle live transcript',
+      'aria-expanded': !collapsed,
+      onClick: toggleLive,
+      className: 'block w-full truncate text-left text-(--ui-text-quaternary)',
+      children: (collapsed ? '▸ Live · ' : '▾ Live') + (collapsed ? liveSummary(lines, on) : '')
+    }), collapsed ? null : lines.length
       ? lines.map((line, i) => {
           const p = parseLive(line)
           return jsxs(
@@ -613,7 +699,7 @@ function LiveStrip({ ctx }) {
             i
           )
         })
-      : jsx('div', { className: 'text-(--ui-text-quaternary)', children: 'listening…' })
+      : jsx('div', { className: 'text-(--ui-text-quaternary)', children: 'listening…' })]
   })
 }
 

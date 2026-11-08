@@ -31,6 +31,29 @@ class FakeRec:
         return getattr(self, "state_value", {})
 
 
+class TestUploads(unittest.TestCase):
+    def test_install_and_text_preserve_bytes_chunks_and_cleanup(self):
+        import base64
+        for text in (None, 'hello café' * 1000):
+            rec = FakeRec({'USERPROFILE': (0, r'C:\Users\test'), 'Test-Path': (0, 'True')})
+            result = wasapi.install(rec) if text is None else wasapi._write_text(rec, r'C:\calls\launch.ps1', text)
+            self.assertTrue(result['ok'])
+            self.assertIn('script' if text is None else 'path', result)
+            pieces = [c.split("-Value '", 1)[1].split("'", 1)[0]
+                      for c in rec.commands if 'Add-Content' in c]
+            self.assertTrue(all(len(p) <= 1500 for p in pieces))
+            expected = ((pathlib.Path(wasapi.__file__).parent / 'scripts' / wasapi.SCRIPT_NAME).read_bytes()
+                        if text is None else text.encode('utf-8-sig'))
+            self.assertEqual(base64.b64decode(''.join(pieces)), expected)
+            self.assertTrue(any('WriteAllBytes' in c and 'Remove-Item -Force' in c for c in rec.commands))
+            self.assertTrue(any('.b64' in c and 'SilentlyContinue' in c for c in rec.commands))
+
+    def test_failed_checks_keep_caller_contracts(self):
+        self.assertIn('error', wasapi.install(FakeRec()))
+        self.assertEqual(wasapi._write_text(FakeRec(), r'C:\calls\x.ps1', 'x'),
+                         {'ok': False, 'path': r'C:\calls\x.ps1'})
+
+
 class TestInteractiveSession(unittest.TestCase):
     def test_an_active_console_session_is_ready(self):
         rec = FakeRec({"quser": (0, "USERNAME  SESSIONNAME  ID  STATE\n jaceb  console  1  Active")})

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Live transcription of two PipeWire sources -> live.txt (+ a viewer on :8799).
+"""Live transcription of two PipeWire sources -> live.txt.
 
 One chunked faster-whisper pass per source, so the two speakers stay separated:
 
@@ -14,7 +14,6 @@ Environment:
   WHISPER_DEVICE     cuda | cpu (default cuda)
   WHISPER_COMPUTE    float16 | int8 (default float16)
   CHUNK_SEC          seconds per chunk (default 6)
-  LIVE_PORT          viewer port (default 8799)
 """
 from __future__ import annotations
 
@@ -35,7 +34,6 @@ DEVICE = os.environ.get("WHISPER_DEVICE", "cuda")
 COMPUTE = os.environ.get("WHISPER_COMPUTE", "float16")
 CPU_THREADS = int(os.environ.get("WHISPER_THREADS", "8"))
 CHUNK = float(os.environ.get("CHUNK_SEC", "6"))
-PORT = int(os.environ.get("LIVE_PORT", "8799"))
 CALL_APPS = ("chromium", "chrome", "brave", "firefox", "vivaldi", "zoom",
              "teams", "slack", "discord", "webex", "signal", "telegram")
 
@@ -126,38 +124,16 @@ def main() -> None:
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     print(f"loading {MODEL_ID} on {DEVICE}…", flush=True)
     model = WhisperModel(MODEL_ID, device=DEVICE, compute_type=COMPUTE, cpu_threads=CPU_THREADS)
-    print(f"model ready — them={mon} you={mic} -> {OUT}", flush=True)
+    print(f"model ready: them={mon} you={mic} -> {OUT}", flush=True)
     with open(OUT, "a", buffering=1) as fh:
         fh.write(f"\n=== live started {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
     threading.Thread(target=writer, args=(model,), daemon=True).start()
     threading.Thread(target=reader, args=("them", mon), daemon=True).start()
     threading.Thread(target=reader, args=("you", mic), daemon=True).start()
 
-    # Optional: a browser view of the same file.
-    try:
-        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-
-        class Handler(BaseHTTPRequestHandler):
-            def log_message(self, format, *args):  # noqa: A002,D102
-                pass
-
-            def do_GET(self):  # noqa: N802
-                try:
-                    with lock:
-                        body = open(OUT, "rb").read()
-                except OSError:
-                    body = b"(nothing yet)"
-                self.send_response(200)
-                self.send_header("Content-Type", "text/plain; charset=utf-8")
-                self.send_header("Cache-Control", "no-store")
-                self.end_headers()
-                self.wfile.write(body)
-
-        ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
-    except OSError as exc:
-        print(f"viewer unavailable on :{PORT} ({exc}); tail the file instead", flush=True)
-        while True:
-            time.sleep(3600)
+    # Keep the capture and transcription daemon threads alive.
+    while True:
+        time.sleep(3600)
 
 
 if __name__ == "__main__":

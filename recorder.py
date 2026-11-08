@@ -443,8 +443,7 @@ class Recorder:
                 return {"action": "kept", "waited": int(waited)}
             if waited >= grace:
                 result = self.stop()
-                return {"action": "stopped", "reason": "call ended",
-                        "file": result.get("file"), "duration": result.get("duration")}
+                return {**result, "action": "stopped", "reason": "call ended"}
             return {"action": "pending_stop", "remaining": int(grace - waited)}
 
         if state.get("ended_at") or state.get("keep"):
@@ -498,27 +497,50 @@ class Recorder:
     # -- delete -------------------------------------------------------------- #
 
     def delete_recording(self, path: str) -> dict:
-        """Remove one recording and its transcript, never anything else.
+        """Remove only a recording in the configured directory and its transcript."""
+        import ntpath
+        import posixpath
 
-        Deleting audio is destructive, so the path is checked twice: it must sit in the
-        configured recordings directory and its basename must look like one of ours.
-        """
-        import os
-
-        name = os.path.basename((path or "").strip())
-        if not name.startswith("call-") or not name.endswith(".mkv"):
+        if not isinstance(path, str):
+            return {"ok": False, "error": "file is required"}
+        windows = self.os_name == "windows"
+        paths = ntpath if windows else posixpath
+        name = paths.basename(path)
+        if not re.fullmatch(r"call-\d{8}-\d{6}\.mkv", name):
             return {"ok": False, "error": "not a recording of mine"}
-        directory = self.rec_dir().rstrip("/")
-        target = os.path.join(directory, name)
-        if os.path.dirname(target.rstrip("/")) != directory:
-            return {"ok": False, "error": "outside the recordings directory"}
-        transcript = target[:-4] + ".transcript.md"
-        code, out = self.run(
-            f"test -f {shlex.quote(target)} && rm -f {shlex.quote(target)} "
-            f"{shlex.quote(transcript)} && echo deleted", timeout=60)
+        try:
+            if windows:
+                from capture_windows import resolved_dir
+                directory = resolved_dir(self).rstrip("\\/")
+            else:
+                directory = self.rec_dir().rstrip("/")
+            if paths.normcase(paths.dirname(path)) != paths.normcase(directory):
+                return {"ok": False, "error": "outside the recordings directory"}
+            target = paths.join(directory, name)
+            transcript = target[:-4] + ".transcript.md"
+            if windows:
+                from capture_windows_wasapi import _q
+                command = (f"try {{ if (!(Test-Path -LiteralPath {_q(target)} -PathType Leaf)) "
+                           "{ Write-Output 'Recording not found.'; exit 3 }; "
+                           f"if (Test-Path -LiteralPath {_q(transcript)}) {{ "
+                           f"Remove-Item -LiteralPath {_q(transcript)} -ErrorAction Stop }}; "
+                           f"Remove-Item -LiteralPath {_q(target)} -ErrorAction Stop; "
+                           "Write-Output 'deleted' } catch { Write-Output 'Permission denied or file in use.'; exit 1 }")
+            else:
+                command = (f"if [ ! -f {shlex.quote(target)} ]; then "
+                           "printf 'Recording not found.'; exit 3; fi; "
+                           f"rm -f -- {shlex.quote(transcript)} && rm -- {shlex.quote(target)} && echo deleted")
+            code, out = self.run(command, timeout=60)
+        except (OSError, RuntimeError):
+            return {"ok": False, "error": "Could not reach the recording machine to delete the recording."}
+        if code in (124, 127, 255):
+            return {"ok": False, "error": "Could not reach the recording machine to delete the recording."}
+        if code == 3:
+            return {"ok": False, "error": "Recording not found. It may already have been deleted."}
         if code != 0 or "deleted" not in out:
-            return {"ok": False, "error": out.strip()[:200] or "could not delete that recording"}
-        return {"ok": True, "removed": [name, os.path.basename(transcript)]}
+            error = "Permission denied or recording is in use." if "permission" in out.lower() else "Could not delete that recording on the recording machine."
+            return {"ok": False, "error": error}
+        return {"ok": True, "removed": [name, paths.basename(transcript)]}
 
     # -- scripts ------------------------------------------------------------ #
 
@@ -563,14 +585,28 @@ class Recorder:
             timeout=60)
         return parse_duration(out) if code == 0 else None
 
+    def set_title(self, path: str, title: str) -> dict:
+        from recording_titles import request
+        return request(self, "set", path, title)
+
+    def get_title(self, path: str) -> dict:
+        from recording_titles import request
+        return request(self, "get", path)
+
+    def recording_titles(self) -> dict:
+        from recording_titles import request
+        return request(self, "list")
+
     def recordings(self, limit: int = 20) -> list[dict]:
         listing = self.run(
             f"ls -1t {shlex.quote(self.rec_dir())}/call-*.mkv 2>/dev/null | head -{int(limit)}")[1]
+        titles = self.recording_titles().get("titles", {})
         items = []
         for path in [line.strip() for line in listing.splitlines() if line.strip()]:
             transcript = re.sub(r"\.mkv$", ".transcript.md", path)
             has = self.run(f"test -f {shlex.quote(transcript)}")[0] == 0
             items.append({"file": path, "name": path.rsplit("/", 1)[-1],
+                          "title": titles.get(path.rsplit("/", 1)[-1], ""),
                           "bytes": self.file_size(path), "duration": self.duration(path),
                           "transcript": transcript if has else None})
         return items
@@ -578,19 +614,6 @@ class Recorder:
     def read_transcript(self, path: str, limit_lines: int = 4000) -> str:
         return self.run(f"head -n {int(limit_lines)} {shlex.quote(path)}")[1]
 
-    def transcribe(self, path: str) -> dict:
-        """Archive pass: one Whisper run per track, merged speaker-labelled markdown."""
-        if not self.live_available():
-            return {"ok": False, "error": "transcription is not configured"}
-        target = re.sub(r"\.mkv$", ".transcript.md", path)
-        command = " ".join([
-            shlex.quote(self.python), shlex.quote(self.live_script.replace("live.py", "archive.py")),
-            shlex.quote(path),
-        ])
-        code, out = self.run(command, timeout=3600)
-        if code != 0:
-            return {"ok": False, "error": out.strip()[:300]}
-        return {"ok": True, "transcript": target}
 
 
 def from_settings(settings: dict) -> Recorder:

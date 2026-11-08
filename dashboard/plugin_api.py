@@ -227,6 +227,67 @@ def resolved_transcription() -> dict:
     return result
 
 
+def _transcribe(rec, path: str) -> dict:
+    transc = resolved_transcription()
+    script = transc.get("live_script") or ""
+    archive = script.replace("live.py", "archive.py") if script.endswith("live.py") else ""
+    env = {"LD_LIBRARY_PATH": transc.get("ld_library_path") or "",
+           "WHISPER_MODEL": transc.get("model") or "",
+           "WHISPER_DEVICE": "cuda", "WHISPER_COMPUTE": "float16"}
+    return run_transcription(rec, path,
+                             gpu_python=transc.get("python") or "",
+                             gpu_script=archive, gpu_env=env,
+                             prefer_gpu=bool(archive))
+
+
+_TRANSCRIPTION_JOBS: dict = {}
+_TRANSCRIPTION_LOCK = threading.Lock()
+
+
+def _launch_archive(worker) -> None:
+    threading.Thread(target=worker, name="call-recorder-archive", daemon=True).start()
+
+
+def _after_stop(rec, result: dict) -> dict:
+    """Queue the archive pass once for every successful enabled stop."""
+    path = result.get("file")
+    if not result.get("ok") or not path or not settings()["transcribe"]:
+        return result
+    key = (rec.host or "local", path)
+    with _TRANSCRIPTION_LOCK:
+        if key in _TRANSCRIPTION_JOBS:
+            return {**result, "transcription": dict(_TRANSCRIPTION_JOBS[key])}
+        job = {"file": path, "state": "queued", "ok": None}
+        _TRANSCRIPTION_JOBS[key] = job
+
+    def worker():
+        with _TRANSCRIPTION_LOCK:
+            job.update(state="running")
+        try:
+            outcome = _transcribe(rec, path)
+        except Exception as exc:
+            _log.warning("call-recorder archive: %s", exc)
+            outcome = {"ok": False, "error": "Could not transcribe on the recording machine."}
+        with _TRANSCRIPTION_LOCK:
+            job.update(outcome)
+            job["state"] = "ready" if outcome.get("ok") else "failed"
+
+    try:
+        _launch_archive(worker)
+    except Exception:
+        with _TRANSCRIPTION_LOCK:
+            job.update(state="failed", ok=False, error="Could not start transcription.")
+    return {**result, "transcription": dict(job)}
+
+
+def _status_payload() -> dict:
+    rec = recorder()
+    with _TRANSCRIPTION_LOCK:
+        jobs = [dict(job) for (host, _), job in _TRANSCRIPTION_JOBS.items()
+                if host == (rec.host or "local")]
+    return {"ok": True, **rec.status(), "transcriptions": jobs}
+
+
 _WATCHER_STARTED = False
 
 
@@ -235,7 +296,10 @@ def _watch() -> None:
     interval = max(3, int(settings().get("watch_seconds") or 10))
     while True:
         try:
-            decision = recorder().tick()
+            rec = recorder()
+            decision = rec.tick()
+            if decision.get("action") == "stopped":
+                decision = _after_stop(rec, decision)
             if decision.get("action") not in ("idle", "recording"):
                 _log.info("call-recorder: %s", decision)
         except Exception as exc:  # a dead SSH target must not kill the watcher
@@ -286,7 +350,7 @@ async def get_config() -> dict:
 
 @router.get("/status")
 async def get_status() -> dict:
-    return await asyncio.to_thread(lambda: {"ok": True, **recorder().status()})
+    return await asyncio.to_thread(_status_payload)
 
 
 @router.post("/start")
@@ -297,7 +361,10 @@ async def post_start(body: dict | None = None) -> dict:
 
 @router.post("/stop")
 async def post_stop() -> dict:
-    return await asyncio.to_thread(lambda: recorder().stop())
+    def _stop():
+        rec = recorder()
+        return _after_stop(rec, rec.stop())
+    return await asyncio.to_thread(_stop)
 
 
 @router.post("/keep")
@@ -306,13 +373,36 @@ async def post_keep() -> dict:
     return await asyncio.to_thread(lambda: recorder().keep())
 
 
+@router.get("/title")
+async def get_title(file: str) -> dict:
+    return await asyncio.to_thread(lambda: recorder().get_title(file))
+
+
+@router.post("/title")
+async def post_title(body: dict) -> dict:
+    from recording_titles import validate_title
+    try:
+        title = validate_title(body.get("title"))
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    if not isinstance(body.get("file"), str) or not body["file"]:
+        return {"ok": False, "error": "file is required"}
+    return await asyncio.to_thread(lambda: recorder().set_title(body["file"], title))
+
+
 @router.post("/delete")
 async def post_delete(body: dict) -> dict:
     """Remove one recording and its transcript. Destructive: the UI asks first."""
     path = (body or {}).get("file", "")
     if not path:
         return {"ok": False, "error": "file is required"}
-    return await asyncio.to_thread(lambda: recorder().delete_recording(path))
+    def _delete():
+        try:
+            return recorder().delete_recording(path)
+        except Exception as exc:
+            _log.warning("call-recorder delete: %s", exc)
+            return {"ok": False, "error": "Could not reach the recording machine to delete the recording."}
+    return await asyncio.to_thread(_delete)
 
 
 @router.post("/recheck")
@@ -372,19 +462,7 @@ async def post_transcribe(body: dict) -> dict:
     if not path:
         return {"ok": False, "error": "file is required"}
 
-    def _run() -> dict:
-        rec = recorder()
-        transc = resolved_transcription()
-        script = transc.get("live_script") or ""
-        archive = script.replace("live.py", "archive.py") if script.endswith("live.py") else ""
-        env = {"LD_LIBRARY_PATH": transc.get("ld_library_path") or "",
-               "WHISPER_MODEL": transc.get("model") or "",
-               "WHISPER_DEVICE": "cuda", "WHISPER_COMPUTE": "float16"}
-        return run_transcription(rec, path, rec.duration(path) or 0,
-                                 gpu_python=transc.get("python") or "",
-                                 gpu_script=archive, gpu_env=env,
-                                 prefer_gpu=bool(archive))
-    return await asyncio.to_thread(_run)
+    return await asyncio.to_thread(lambda: _transcribe(recorder(), path))
 
 
 # The plugin is imported by the dashboard process once, at startup: this is where

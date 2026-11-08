@@ -47,7 +47,7 @@ def transcribe_with_gpu(rec, source: str, out_path: pathlib.Path, python: str,
     return {"ok": True, "engine": ENGINE_GPU, "path": str(out_path), "segments": segments}
 
 
-def transcribe(rec, source: str, duration: float, *, gpu_python: str = "",
+def transcribe(rec, source: str, *, gpu_python: str = "",
                gpu_script: str = "", gpu_env: dict | None = None,
                prefer_gpu: bool = True) -> dict:
     """Run Whisper on the recording machine, or explain why it cannot."""

@@ -35,14 +35,14 @@ class EngineChoiceTests(unittest.TestCase):
 class TranscribeTests(unittest.TestCase):
     def test_no_engine_explains_itself_instead_of_failing_silently(self):
         rec = FakeRecorder()
-        result = tx.transcribe(rec, "/rec/rec.mkv", 10, gpu_python="", gpu_script="")
+        result = tx.transcribe(rec, "/rec/rec.mkv", gpu_python="", gpu_script="")
         self.assertFalse(result["ok"])
         self.assertIn("no Whisper", result["error"])
         self.assertEqual(rec.commands, [])
 
     def test_the_environment_travels_with_the_command(self):
         rec = FakeRecorder()
-        tx.transcribe(rec, "/rec/rec.mkv", 10, gpu_python="/venv/bin/python",
+        tx.transcribe(rec, "/rec/rec.mkv", gpu_python="/venv/bin/python",
                       gpu_script="/srv/archive.py",
                       gpu_env={"WHISPER_MODEL": "/models/small.en", "WHISPER_DEVICE": "cuda"})
         command = rec.commands[0]
@@ -52,20 +52,20 @@ class TranscribeTests(unittest.TestCase):
 
     def test_an_empty_environment_variable_is_not_written_out(self):
         rec = FakeRecorder()
-        tx.transcribe(rec, "/rec/rec.mkv", 10, gpu_python="p", gpu_script="s",
+        tx.transcribe(rec, "/rec/rec.mkv", gpu_python="p", gpu_script="s",
                       gpu_env={"LD_LIBRARY_PATH": "", "WHISPER_MODEL": "/m"})
         self.assertNotIn("LD_LIBRARY_PATH=", rec.commands[0])
 
     def test_segments_are_counted_on_the_recording_machine(self):
         rec = FakeRecorder(segments=6)
-        result = tx.transcribe(rec, "/rec/rec.mkv", 10, gpu_python="p", gpu_script="s")
+        result = tx.transcribe(rec, "/rec/rec.mkv", gpu_python="p", gpu_script="s")
         self.assertTrue(result["ok"])
         self.assertEqual(result["segments"], 6)
         self.assertTrue(any(command.startswith("grep -c") for command in rec.commands))
 
     def test_a_failed_run_returns_the_error_rather_than_a_guess(self):
         rec = FakeRecorder(run_code=1)
-        result = tx.transcribe(rec, "/rec/rec.mkv", 10, gpu_python="p", gpu_script="s")
+        result = tx.transcribe(rec, "/rec/rec.mkv", gpu_python="p", gpu_script="s")
         self.assertFalse(result["ok"])
         self.assertIn("boom", result["error"])
 

@@ -41,19 +41,7 @@ def install(rec) -> dict:
     if not local.exists():
         return {"ok": False, "error": f"{SCRIPT_NAME} is missing from this install"}
     dest = script_path(rec)
-    directory = _home(rec) + "\\.call-recorder"
-    staging = directory + "\\" + SCRIPT_NAME + ".b64"
-    payload = base64.b64encode(local.read_bytes()).decode()
-    rec.run(f"New-Item -ItemType Directory -Force -Path {_q(directory)} | Out-Null; "
-            f"Remove-Item -Force {_q(staging)} -ErrorAction SilentlyContinue")
-    # A cmd.exe command line stops at 8191 characters, so ship the payload in pieces.
-    # One big write truncates silently, which looks exactly like a missing file later.
-    for offset in range(0, len(payload), 1500):
-        piece = _q(payload[offset:offset + 1500])
-        rec.run(f"Add-Content -Path {_q(staging)} -Value {piece} -NoNewline")
-    rec.run(f"$b=[Convert]::FromBase64String((Get-Content {_q(staging)} -Raw)); "
-            f"[IO.File]::WriteAllBytes({_q(dest)}, $b); Remove-Item -Force {_q(staging)}")
-    _code, check = rec.run(f"Test-Path {_q(dest)}")
+    check = _write_bytes(rec, dest, local.read_bytes())
     if "True" not in check:
         return {"ok": False, "error": "the capture helper could not be written to that machine"}
     return {"ok": True, "script": dest}
@@ -112,11 +100,11 @@ Write-Output ("scheduled=" + $state)
 """
 
 
-def _write_text(rec, dest: str, text: str) -> dict:
-    """Write a text file on the target in pieces the command line can carry."""
+def _write_bytes(rec, dest: str, data: bytes) -> str:
+    """Upload in 1500-character chunks to stay below cmd.exe's 8191 limit."""
     directory = dest.rsplit("\\", 1)[0]
     staging = dest + ".b64"
-    payload = base64.b64encode(text.encode("utf-8-sig")).decode()
+    payload = base64.b64encode(data).decode()
     rec.run(f"New-Item -ItemType Directory -Force -Path {_q(directory)} | Out-Null; "
             f"Remove-Item -Force {_q(staging)} -ErrorAction SilentlyContinue")
     for offset in range(0, len(payload), 1500):
@@ -124,6 +112,12 @@ def _write_text(rec, dest: str, text: str) -> dict:
     rec.run(f"$b=[Convert]::FromBase64String((Get-Content {_q(staging)} -Raw)); "
             f"[IO.File]::WriteAllBytes({_q(dest)}, $b); Remove-Item -Force {_q(staging)}")
     _code, check = rec.run(f"Test-Path {_q(dest)}")
+    return check
+
+
+def _write_text(rec, dest: str, text: str) -> dict:
+    """Write UTF-8 text with the BOM required by Windows PowerShell."""
+    check = _write_bytes(rec, dest, text.encode("utf-8-sig"))
     return {"ok": "True" in check, "path": dest}
 
 
