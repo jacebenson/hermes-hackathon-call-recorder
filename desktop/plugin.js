@@ -432,6 +432,48 @@ function RecorderPane({ ctx }) {
   })
 }
 
+
+function LiveStrip({ ctx }) {
+  const status = useQuery(statusQuery(ctx))
+  const st = status.data || {}
+  const on = !!st.recording && !!st.live
+  const live = useQuery({
+    queryKey: [ID, 'strip'],
+    queryFn: () => ctx.rest('/transcript?lines=12', { timeoutMs: 15000 }),
+    refetchInterval: on ? 2500 : false,
+    enabled: on,
+    retry: false
+  })
+  if (!on) return null
+  const lines = ((live.data && live.data.lines) || []).slice(-3)
+  return jsx('div', {
+    className: cn(
+      'mx-auto mb-1 w-full max-w-3xl rounded-md border-l-2 border-red-500/70',
+      'bg-(--card) px-2 py-1 font-mono text-[0.6875rem] leading-snug'
+    ),
+    children: lines.length
+      ? lines.map((line, i) => {
+          const p = parseLive(line)
+          return jsxs(
+            'div',
+            {
+              className: 'flex gap-1.5',
+              children: [
+                jsx('span', { className: 'shrink-0 text-(--ui-text-quaternary)', children: p.t }),
+                jsx('span', {
+                  className: cn('shrink-0 font-semibold', p.who === 'you' ? 'text-green-500' : 'text-blue-400'),
+                  children: p.who
+                }),
+                jsx('span', { className: 'min-w-0 text-(--ui-text-secondary)', children: p.text })
+              ]
+            },
+            i
+          )
+        })
+      : jsx('div', { className: 'text-(--ui-text-quaternary)', children: 'listening…' })
+  })
+}
+
 export default {
   id: ID,
   name: 'Call Recorder',
@@ -440,6 +482,11 @@ export default {
       id: 'call-recorder-composer',
       area: 'composer.leading',
       render: () => jsx(ComposerRecordButton, { ctx })
+    })
+    ctx.register({
+      id: 'call-recorder-strip',
+      area: 'composer.top',
+      render: () => jsx(LiveStrip, { ctx })
     })
     ctx.register({
       id: 'call-recorder-chip',

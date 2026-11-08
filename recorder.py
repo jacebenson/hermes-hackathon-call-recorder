@@ -467,7 +467,9 @@ class Recorder:
     def transcript_tail(self, lines: int = 60) -> list[str]:
         path = f"{self.rec_dir()}/live.txt"
         out = self.run(f"tail -n {int(lines)} {shlex.quote(path)} 2>/dev/null")[1]
-        return [line for line in out.splitlines() if line.strip()]
+        # The file carries "=== live started …" section markers; they are not speech.
+        return [line for line in out.splitlines()
+                if line.strip() and not line.strip().startswith("===")]
 
     # -- scripts ------------------------------------------------------------ #
 
