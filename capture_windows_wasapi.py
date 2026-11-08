@@ -184,13 +184,15 @@ def start(rec, live: bool = False) -> dict:
     for _ in range(24):
         time.sleep(0.5)
         _code, raw = rec.run(f"Get-Content {_q(status_file)} -Raw -ErrorAction SilentlyContinue")
-        # ssh prints its own warnings on stdout, so find the json rather than assume line 1.
-        body = "\n".join(line for line in (raw or "").splitlines() if line.strip().startswith("{"))
-        if body:
-            try:
-                info = json.loads(body[body.index("{"):])
-            except ValueError:
-                continue
+        text = raw or ""
+        start = text.find("{")
+        if start < 0:
+            continue
+        try:
+            info, _end = json.JSONDecoder().raw_decode(text[start:])
+        except ValueError:
+            continue
+        if isinstance(info, dict) and info.get("started"):
             state = {"os": "windows-wasapi", "out_dir": out_dir, "stop_file": stop_file,
                      "status_file": status_file, "name": info.get("name") or "",
                      "system": info.get("system"), "mic": info.get("mic"),
@@ -249,7 +251,9 @@ def stop(rec) -> dict:
         _code, duration = rec.run(
             '& ffprobe -v error -show_entries format=duration -of csv=p=0 ' + _q(path), timeout=120)
         from recorder import parse_duration
-        result["duration"] = parse_duration(duration)
+        numbers = [line.strip() for line in (duration or "").splitlines()
+                   if line.strip().replace(".", "", 1).isdigit()]
+        result["duration"] = float(numbers[-1]) if numbers else parse_duration(duration)
         _code, size = rec.run(f"(Get-Item {_q(path)} -ErrorAction SilentlyContinue).Length")
         try:
             result["bytes"] = int(size.strip().splitlines()[0])
