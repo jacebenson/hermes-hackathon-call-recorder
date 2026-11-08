@@ -78,6 +78,20 @@ class SettingsTests(unittest.TestCase):
         self.assertIs(cfg["auto_start"], False, "nothing records without a click")
         self.assertEqual(cfg["auto_stop_seconds"], 180)
 
+    def test_no_config_means_local_without_any_discovery(self):
+        from unittest.mock import patch
+        self.assertFalse((self.home / "config.yaml").exists())
+        self.assertFalse(self.settings_json.exists())
+        self.assertEqual(plugin_api.settings()["host"], "")
+        with patch.object(plugin_api.Recorder, "run", side_effect=AssertionError("must not probe hosts")):
+            choice = plugin_api.resolved_source(force=True)
+        self.assertEqual((choice["host"], choice["mode"]), ("", "local"))
+        self.assertIn("Hermes runs on", choice["why"])
+        self._write_manifest_settings({"host": "beast-1"})
+        self.assertEqual(plugin_api.resolved_source()["host"], "beast-1")
+        self._write_manifest_settings({"host": ""})
+        self.assertEqual(plugin_api.resolved_source()["mode"], "local")
+
     def test_settings_page_values_win_over_defaults(self):
         self._write_manifest_settings({"host": "desktop-1", "auto_stop_seconds": 45,
                                        "auto_start": False})

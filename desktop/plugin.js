@@ -285,6 +285,7 @@ function RecorderPane({ ctx }) {
   const [confirmDelete, setConfirmDelete] = useState('')
   const [editingTitle, setEditingTitle] = useState('')
   const [titleDraft, setTitleDraft] = useState('')
+  const [diagnosis, setDiagnosis] = useState(null)
   const [collapsed, toggleLive] = useLiveDisclosure('pane')
   const tailRef = useRef(null)
 
@@ -405,7 +406,7 @@ function RecorderPane({ ctx }) {
       cfg.why
         ? jsx('div', {
             className: 'text-[0.6875rem] leading-snug text-(--ui-text-quaternary)',
-            children: cfg.host_mode === 'auto' ? 'auto: ' + cfg.why : cfg.why
+            children: cfg.why
           })
         : null,
       jsx('div', {
@@ -460,17 +461,47 @@ function RecorderPane({ ctx }) {
                   jsx('div', { children: cfg.readiness.detail || 'this machine cannot capture audio' }),
                   cfg.readiness.fix ? jsx('div', { className: 'mt-0.5 opacity-80', children: cfg.readiness.fix }) : null
                 ]
-              }),
-              jsx(Button, {
-                size: 'sm',
-                variant: 'secondary',
-                disabled: busy,
-                onClick: () => call('/recheck'),
-                children: 'Check again'
               })
             ]
           })
         : null,
+      jsxs('div', {
+        className: 'flex items-center gap-2',
+        children: [
+          jsx(Button, {
+            size: 'sm', variant: 'secondary', disabled: busy,
+            onClick: () => call('/recheck'), children: 'Check again'
+          }),
+          jsx(Button, {
+            size: 'sm', variant: 'secondary', disabled: busy,
+            onClick: async () => {
+              setBusy(true)
+              setDiagnosis(null)
+              try {
+                // A failed checklist is a result, not a rejected recording action.
+                setDiagnosis(await ctx.rest('/diagnose', { method: 'POST', body: {}, timeoutMs: 180000 }))
+              } catch (e) {
+                setDiagnosis({ steps: [{ id: 'connection', status: 'failed', message: 'Could not run the connection test. ' + (e?.message || e) }] })
+              } finally {
+                setBusy(false)
+              }
+            },
+            children: 'Test'
+          })
+        ]
+      }),
+      diagnosis ? jsxs('div', {
+        role: 'status',
+        className: 'text-[0.6875rem] leading-snug',
+        children: [
+          jsx('div', { children: 'Connection test: ' + (diagnosis.target || cfg.host || 'local') }),
+          ...(diagnosis.steps || []).slice().sort((a, b) => Number(a.status !== 'failed') - Number(b.status !== 'failed')).map((step) => jsx('div', {
+            'data-check': step.id,
+            className: step.status === 'failed' ? 'font-semibold text-(--ui-text-primary)' : 'text-(--ui-text-secondary)',
+            children: step.status + ': ' + step.message
+          }, step.id))
+        ]
+      }) : null,
       jsx('div', { className: 'h-px bg-(--ui-stroke-secondary)' }),
       jsx('button', {
         type: 'button',

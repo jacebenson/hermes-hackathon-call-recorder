@@ -215,67 +215,10 @@ class StatusTests(unittest.TestCase):
 class DetectionTests(unittest.TestCase):
     """Which machine gets recorded, and can we explain the choice."""
 
-    @staticmethod
-    def machine(target, audio=True, record=True, in_call=False):
-        return {"target": target, "reachable": True, "hostname": target,
-                "can_record": record, "has_audio": audio, "sink": "sink" if audio else None,
-                "source": "mic" if audio else None, "in_call": in_call}
-
     def test_a_configured_machine_wins(self):
-        original = recorder_mod.probe
-        recorder_mod.probe = lambda host=None, timeout=8: self.machine(host or "local")
-        try:
-            choice = recorder_mod.choose_source("desktop-1")
-        finally:
-            recorder_mod.probe = original
+        choice = recorder_mod.choose_source("desktop-1")
         self.assertEqual(choice["host"], "desktop-1")
         self.assertEqual(choice["mode"], "configured")
-
-    def test_local_wins_when_it_has_audio(self):
-        choice = recorder_mod.choose_source("", candidates=[self.machine("local")])
-        self.assertEqual((choice["mode"], choice["host"]), ("local", ""))
-
-    def test_the_machine_with_a_microphone_is_picked_and_explained(self):
-        choice = recorder_mod.choose_source(
-            "", candidates=[self.machine("gateway", audio=False), self.machine("desk")])
-        self.assertEqual((choice["mode"], choice["host"]), ("auto", "desk"))
-        self.assertIn("gateway has no audio devices", choice["why"])
-        self.assertIn("desk does", choice["why"])
-
-    def test_a_reachable_machine_without_audio_is_not_picked(self):
-        choice = recorder_mod.choose_source(
-            "", candidates=[self.machine("gateway", audio=False), self.machine("server", audio=False)])
-        self.assertEqual(choice["mode"], "none")
-        self.assertIn("set one in settings", choice["why"])
-
-
-    def test_the_desk_you_are_sitting_at_beats_the_first_box_with_a_mic(self):
-        """Two desks, one SSH config: the call in progress decides, not alias order."""
-        choice = recorder_mod.choose_source("", candidates=[
-            self.machine("gateway", audio=False),
-            self.machine("desk-a"),                    # has audio, idle
-            self.machine("desk-b", in_call=True),      # where the call actually is
-        ])
-        self.assertEqual((choice["mode"], choice["host"]), ("auto", "desk-b"))
-        self.assertIn("a call is in progress on desk-b", choice["why"])
-
-    def test_a_call_on_this_machine_keeps_it_local(self):
-        choice = recorder_mod.choose_source("", candidates=[
-            self.machine("gateway", audio=False, in_call=True),
-        ])
-        self.assertEqual((choice["mode"], choice["host"]), ("local", ""))
-        self.assertIn("call is in progress on this machine", choice["why"])
-
-
-    def test_a_non_linux_host_gets_an_honest_reason(self):
-        """No bash, no pactl, no systemd on Windows: say that instead of 'nothing found'."""
-        windows = self.machine("local", audio=False)
-        windows["os"] = "MINGW64_NT-10.0"
-        choice = recorder_mod.choose_source("", candidates=[windows])
-        self.assertEqual(choice["mode"], "unsupported")
-        self.assertIn("needs Linux with PipeWire", choice["why"])
-        self.assertIn("MINGW64", choice["why"])
-
 
     def test_transcription_paths_are_detected_not_typed(self):
         rec = Recorder(host="desk", state_file="/nonexistent/x.json")
@@ -363,14 +306,6 @@ class DetectionTests(unittest.TestCase):
         inner = command[len("bash -lc "):]
         self.assertEqual(shlex.split(inner), ["pactl get-default-sink && echo done"])
 
-    def test_ssh_alias_parsing_skips_wildcards(self):
-        with tempfile.NamedTemporaryFile("w", suffix=".conf", delete=False) as fh:
-            fh.write("Host desk\n  HostName desk.lan\nHost *.internal\nHost desk other\n")
-            path = fh.name
-        try:
-            self.assertEqual(recorder_mod.ssh_aliases(path), ["desk", "other"])
-        finally:
-            os.unlink(path)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 name: call-recorder
-version: "1.3.1"
+version: "1.3.2"
 requires_hermes: ">=0.23.0"
 license: MIT
 homepage: https://github.com/jacebenson/hermes-hackathon-call-recorder
@@ -10,10 +10,13 @@ description: Record both sides of a call (system audio + mic) and transcribe it.
 config_schema:
   host:
     type: str
-    label: 1. Machine that records
-    description: The one with the microphone and the headset. Leave it empty and the
-      recorder picks it for you - the machine where a call is in progress, else the
-      first machine on your SSH config that has audio. Fill it in only to pin one.
+    label: 1. Recording machine (empty means this Hermes machine)
+    description: Leave it empty to record on the machine Hermes runs on. To record
+      somewhere else, name that machine and make sure Hermes can ssh to it without
+      a password. Hermes on pro-1, microphone on beast-1 means host is beast-1 and
+      pro-1 needs a working SSH key to beast-1. From pro-1, run ssh beast-1 true;
+      it must return without asking for a password. Use Test in the pane for the
+      in-app connection check.
     default: ""
   recordings_dir:
     type: str

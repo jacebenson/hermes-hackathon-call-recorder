@@ -172,3 +172,102 @@ def readiness(recorder_cls, host: str | None = None) -> dict:
 
     return {"state": "unsupported", "os": os_name, "target": target,
             "detail": "this machine did not answer as Linux, Windows or macOS"}
+
+
+def diagnose(recorder_cls, host: str | None = None, settings: dict | None = None) -> dict:
+    """Fresh, ordered checks. Failures are data, including transport exceptions."""
+    host = (host or "").strip() or None
+    cfg = settings or {}
+    steps = []
+    os_name = UNKNOWN
+
+    def check(key, action):
+        try:
+            ok, message = action()
+        except Exception as exc:
+            ok, message = False, f"Could not check {key}: {str(exc)[:160]}"
+        steps.append({"id": key, "status": "ok" if ok else "failed", "message": message})
+        return ok
+
+    def reachable():
+        # This command works in both POSIX shells and the Windows SSH default shell.
+        # Do not require bash or PowerShell before we know the target OS.
+        import subprocess
+        import platform
+        if host:
+            argv = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", host,
+                    "echo callrec-connected"]
+            done = subprocess.run(argv, capture_output=True, text=True, timeout=12)
+            ok = done.returncode == 0 and "callrec-connected" in done.stdout
+            return ok, (f"SSH reaches {host} without a password." if ok else
+                        f"SSH could not reach {host} without a password. Check the host and SSH key.")
+        rec = recorder_cls(os_name=WINDOWS if platform.system() == "Windows" else LINUX)
+        code, out = rec.run("echo callrec-connected", timeout=12)
+        ok = code == 0 and "callrec-connected" in out
+        return ok, ("Local commands work on the machine Hermes runs on. SSH is not needed."
+                    if ok else "Could not run commands on the local machine.")
+
+    connected = check("ssh", reachable)
+
+    rec = None
+
+    def operating_system():
+        nonlocal os_name, rec
+        os_name = detect_os(recorder_cls, host)
+        rec = recorder_cls(host=host, os_name=os_name)
+        return os_name != UNKNOWN, (f"Detected {os_name}." if os_name != UNKNOWN else
+                                    "Could not detect the operating system.")
+
+    if connected:
+        check("os", operating_system)
+    else:
+        check("os", lambda: (False, "Cannot detect the OS until the connection works."))
+
+    def audio():
+        if os_name == LINUX:
+            code, sink = rec.run("pactl get-default-sink 2>/dev/null")
+            mic_code, mic = rec.run("pactl get-default-source 2>/dev/null")
+            sources_code, sources = rec.run("pactl list short sources 2>/dev/null")
+            names = [line.split()[1] for line in sources.splitlines() if len(line.split()) > 1]
+            monitor = sink.strip() + ".monitor"
+            ok = (code == mic_code == sources_code == 0 and monitor in names
+                  and mic.strip() in names and not mic.strip().endswith(".monitor"))
+            return ok, (f"PipeWire sink monitor {monitor} and microphone {mic.strip()} are present."
+                        if ok else "PipeWire sink monitor or microphone is missing. Check the audio session and default devices.")
+        if os_name == WINDOWS:
+            from capture_windows_wasapi import interactive_session
+            session = interactive_session(rec)
+            if not session.get("ok"):
+                return False, "Nobody is logged in with an active session. Log in on the recording machine to expose WASAPI audio."
+            from diagnose_windows import audio_devices
+            return audio_devices(rec)
+        return False, f"Audio capture is not supported on {os_name}."
+
+    def ffmpeg():
+        command = "(Get-Command ffmpeg -ErrorAction Stop).Source" if os_name == WINDOWS else "command -v ffmpeg"
+        code, out = rec.run(command)
+        ok = code == 0 and bool(out.strip())
+        return ok, f"ffmpeg is at {out.strip()}." if ok else "ffmpeg is missing on the recording machine."
+
+    def whisper():
+        import shlex
+        if os_name == WINDOWS:
+            from capture_windows_wasapi import _q
+            python = cfg.get("python") or "python"
+            code, out = rec.run(f"& {_q(python)} -c \"import faster_whisper; print(faster_whisper.__file__)\"", timeout=30)
+        elif cfg.get("python"):
+            code, out = rec.run(f"{shlex.quote(cfg['python'])} -c 'import faster_whisper; print(faster_whisper.__file__)'", timeout=30)
+        else:
+            from recorder import TRANSCRIPTION_PROBE
+            code, raw = rec.run(TRANSCRIPTION_PROBE, timeout=30)
+            out = next((line[3:] for line in raw.splitlines() if line.startswith("PY=")), "")
+        ok = code == 0 and bool(out.strip())
+        return ok, f"Whisper is at {out.strip()}." if ok else "Whisper is missing on the recording machine. Recording can work without transcription."
+
+    for key, action in [("audio", audio), ("ffmpeg", ffmpeg), ("whisper", whisper)]:
+        if connected and os_name != UNKNOWN:
+            check(key, action)
+        else:
+            check(key, lambda: (False, "Cannot check this until the connection and OS checks pass."))
+    return {"ok": all(s["status"] == "ok" for s in steps), "target": host or "local",
+            "os": os_name, "steps": steps}

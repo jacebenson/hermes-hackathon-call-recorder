@@ -38,15 +38,12 @@ import sys
 if str(_PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(_PLUGIN_ROOT))
 
-from platforms import readiness as platform_readiness  # noqa: E402
+from platforms import readiness as platform_readiness, diagnose  # noqa: E402
 from transcribe import transcribe as run_transcription, transcribe_from_live  # noqa: E402
 from recorder import (  # noqa: E402
     Recorder,
     choose_source,
-    detect_candidates,
     detect_transcription,
-    probe,
-    ssh_aliases,
 )
 
 router = APIRouter()
@@ -54,7 +51,7 @@ router = APIRouter()
 #: Advanced keys stay here (env / settings.json can pin them) but are NOT in the
 #: manifest schema: the settings page asks four questions, not seven.
 DEFAULTS = {
-    "host": "",                    # "" = the machine that has the microphone
+    "host": "",                    # "" = the machine Hermes runs on
     "recordings_dir": "~/recordings",
     "transcribe": True,            # the one transcription switch
     "stop_when_call_ends": True,   # three minutes of grace, then stop and transcribe
@@ -152,23 +149,9 @@ def recorder() -> Recorder:
     return live
 
 
-_SOURCE_CACHE: dict = {"at": 0.0, "value": None}
-
-
 def resolved_source(force: bool = False) -> dict:
-    """Which machine will be recorded, cached for a minute so routes stay fast."""
-    now = time.time()
-    cached = _SOURCE_CACHE.get("value")
-    if not force and cached and now - float(_SOURCE_CACHE.get("at") or 0) < 60:
-        return cached
-    try:
-        choice = choose_source(settings()["host"])
-    except Exception as exc:  # noqa: BLE001 - never break a route over detection
-        _log.warning("call-recorder: source detection failed: %s", exc)
-        choice = {"host": settings()["host"], "mode": "unknown", "probe": {},
-                  "why": f"detection failed: {exc}"}
-    _SOURCE_CACHE.update({"at": now, "value": choice})
-    return choice
+    """The setting is the target. Empty always means local."""
+    return choose_source(settings()["host"])
 
 
 _READINESS_CACHE: dict = {"at": 0.0, "host": None, "value": None}
@@ -431,7 +414,6 @@ async def post_delete(body: dict) -> dict:
 async def post_recheck() -> dict:
     """Forget every cached detection and look again (used after installing a driver)."""
     def _recheck() -> dict:
-        _SOURCE_CACHE.update({"at": 0.0, "value": None})
         _TRANSCRIPTION_CACHE.update({"at": 0.0, "host": None, "value": None})
         _READINESS_CACHE.update({"at": 0.0, "host": None, "value": None})
         return _config_payload()
@@ -444,15 +426,11 @@ async def get_call() -> dict:
     return await asyncio.to_thread(lambda: {"ok": True, **recorder().call_state()})
 
 
-@router.get("/detect")
-async def get_detect() -> dict:
-    """Every machine we could record, and which ones actually have audio."""
-    def _detect() -> dict:
-        candidates = detect_candidates()
-        usable = [c for c in candidates if c.get("can_record") and c.get("has_audio")]
-        return {"ok": True, "chosen": resolved_source(force=True), "usable": usable,
-                "candidates": candidates, "ssh_hosts": ssh_aliases()[:12]}
-    return await asyncio.to_thread(_detect)
+@router.post("/diagnose")
+async def post_diagnose() -> dict:
+    """Run fresh connection checks without starting capture."""
+    cfg = settings()
+    return await asyncio.to_thread(diagnose, Recorder, cfg["host"] or None, cfg)
 
 
 @router.get("/transcript")

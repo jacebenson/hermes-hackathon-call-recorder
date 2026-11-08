@@ -15,7 +15,7 @@ hermes plugins enable call-recorder
 
 ## What it needs
 
-The Hermes host needs an `ssh` client. On the machine being recorded:
+Remote recording needs an `ssh` client on the Hermes host. On the machine being recorded:
 
 | | |
 | --- | --- |
@@ -59,26 +59,41 @@ on Linux or `python` on Windows, independent of Whisper. Click the live transcri
 header to collapse or expand it. That choice lasts for the desktop session.
 
 Four optional settings cover which machine, where to save, transcribe or not, and stop
-when the call ends. An empty machine field picks a machine on a call, else one with audio.
+when the call ends. Leave `host` empty to record on the machine Hermes runs on.
+To record somewhere else, name that machine and make sure Hermes can `ssh` to it
+without a password. There is no host discovery.
+
+For example, Hermes on `pro-1` with the microphone on `beast-1` means `host` is
+`beast-1`. `pro-1` needs a working SSH key to `beast-1`. From a shell on `pro-1`, run:
+
+```bash
+ssh beast-1 true
+```
+
+It must return without asking for a password. In the pane, press `Test` next to
+`Check again` for the in-app check. It checks the connection, OS, audio sources,
+ffmpeg and where Whisper lives. Each step reports ok or failed. Failures appear
+first. A missing Whisper runtime means recording only, not a broken connection.
 
 ## What it touches
 
-* **Your SSH config** — `~/.ssh/config` supplies candidate host aliases when no host is
-  pinned. Keys are used by `ssh` itself, never read by the plugin.
-* **Shell commands over SSH** — `pactl`, `ffmpeg`, `systemctl --user` on Linux;
-  `powershell`, `ffprobe` and a scheduled task on Windows.
-* **Live transcript files**: the pane reads through the plugin API over SSH. The
-  recording machine opens no HTTP viewer or listening port.
-* **Helper scripts on the recording machine** — `~/.local/share/call-recorder/` (Linux)
-  or `%USERPROFILE%\.call-recorder\` (Windows). Windows rewrites them on every start;
-  Linux re-checks them when transcription is detected, cached for five minutes.
-* **Background work** — an ffmpeg capture as a `systemd --user` unit, or a scheduled task
-  and a Python process on Windows. A watcher thread polls for calls when auto-start or
-  auto-stop is enabled.
-* **No stored credentials**, no telemetry, no cloud transcription. Whisper fetches a model
-  if the machine has none.
-* **Plain files**: the mkv, its transcript, `.titles.json` and small state files, on the recording
-  machine.
+* Shell commands run locally or over SSH: `pactl`, `ffmpeg`, `systemctl --user`
+  on Linux; `powershell`, `ffprobe` and scheduled tasks on Windows. The pane reads
+  live transcripts through the plugin API over SSH for remote hosts. The recording
+  machine opens no HTTP viewer or listening port. The plugin does not read SSH
+  configuration or keys. `ssh` itself uses your existing key.
+* Helper scripts are written to `~/.local/share/call-recorder/` on Linux or
+  `%USERPROFILE%\.call-recorder\` on Windows. Windows rewrites capture helpers on
+  every start. Linux re-checks transcription helpers on detection, cached for five
+  minutes. The Windows Test action writes a temporary audio probe, runs it as an
+  interactive scheduled task, then removes the task and temporary files.
+* Background capture uses a `systemd --user` unit on Linux or a scheduled task and
+  Python process on Windows. Capture stops with the recording. A watcher thread
+  polls for calls when auto-start or auto-stop is enabled.
+* Transcription stays on the recording machine, with no cloud transcription,
+  telemetry or stored credentials. Whisper fetches a model if none is present.
+  Files created include the `.mkv`, `.transcript.md`, `.live.txt`, `.titles.json`
+  and small state files. Recordings and their sidecars stay on the recording machine.
 
 ## Limits
 
@@ -90,10 +105,10 @@ when the call ends. An empty machine field picks a machine on a call, else one w
 ## Development
 
 ```bash
-python3 -m unittest discover -s tests                       # 83 tests
+python3 -m unittest discover -s tests
 node --experimental-vm-modules --no-warnings tests/desktop.test.mjs
 node --check desktop/plugin.js
-hermes plugins validate . --install-deps
+hermes plugins validate .
 ```
 
 ## License

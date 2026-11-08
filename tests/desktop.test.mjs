@@ -148,4 +148,18 @@ await button(render('call-recorder-pane'), 'Transcribe').props.onClick()
 assert.equal(requests[0].path, '/transcribe')
 assert.equal(requests[0].options.body.file, 'quality')
 assert(notes.some(n => n.message.includes('transcript ready from Whisper re-pass')))
+reset(); data = { status: {}, recordings: {} }
+response = { ok: false, target: 'beast-1', steps: [
+  { id: 'ssh', status: 'ok', message: 'SSH reaches beast-1.' },
+  { id: 'audio', status: 'failed', message: 'Microphone missing.' }
+] }
+await button(render('call-recorder-pane'), 'Test').props.onClick()
+assert.equal(requests[0].path, '/diagnose')
+tree = render('call-recorder-pane')
+const checklist = nodes(tree).filter(n => n.props['data-check'])
+assert.equal(checklist[0].props['data-check'], 'audio')
+assert.equal(checklist[1].props['data-check'], 'ssh')
+assert(nodes(tree).some(n => n.props.children === 'failed: Microphone missing.'))
+assert.equal(notes.length, 0)
+assert(button(tree, 'Check again'))
 console.log('Desktop behavior checks passed.')
