@@ -779,10 +779,15 @@ function RecorderPane({ ctx }) {
                 recordingKey(r)
               )
             )
-          : jsx('div', {
-              className: 'text-[0.6875rem] leading-snug text-(--ui-text-quaternary)',
-              children: 'nothing recorded yet - click the rec button next to the composer while you are on a call'
-            })
+          : recs.isFetching
+            ? jsx('div', {
+                className: 'text-[0.6875rem] leading-snug text-(--ui-text-quaternary)',
+                children: 'reading ' + (cfg.host || 'this machine') + '…'
+              })
+            : jsx('div', {
+                className: 'text-[0.6875rem] leading-snug text-(--ui-text-quaternary)',
+                children: 'nothing recorded yet - click the rec button next to the composer while you are on a call'
+              })
       })
     ]
   })
