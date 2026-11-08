@@ -147,7 +147,8 @@ function ComposerRecordButton({ ctx }) {
               : 'bg-current opacity-50'
         )
       }),
-      pending ? '…' : shownRecording ? clock(elapsed) : 'rec'
+      // The timer lives in the status bar; here only the state matters.
+      pending ? '…' : shownRecording ? '' : 'rec'
     ]
   })
 }
