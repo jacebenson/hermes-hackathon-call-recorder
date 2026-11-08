@@ -1,10 +1,10 @@
 """Which capture backend this machine has, and what it still needs.
 
 The recorder can only work where a program is allowed to read both sides of the
-audio. Linux gives that away (PipeWire monitors). Windows and macOS do not: they
-need a virtual audio driver, which no plugin can install for you, so the honest
-job here is to detect the platform, detect the driver, and say precisely what is
-missing before anything pretends to record.
+audio. Linux gives that away with PipeWire monitors, and Windows does too through
+WASAPI loopback, which is part of the OS and needs no driver. The one platform that
+does still need a virtual driver is macOS, and the honest job here is to detect the
+platform, detect what is missing, and say so before anything pretends to record.
 
 States returned by :func:`readiness`:
 

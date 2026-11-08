@@ -1,5 +1,5 @@
 name: call-recorder
-version: "1.2.3"
+version: "1.2.4"
 requires_hermes: ">=0.23.0"
 license: MIT
 homepage: https://github.com/jacebenson/hermes-hackathon-call-recorder

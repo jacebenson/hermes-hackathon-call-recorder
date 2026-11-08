@@ -1,6 +1,7 @@
 """Windows capture: two DirectShow devices into one two-track mkv.
 
-Verified on Windows 11 with two microphones (see README's platform matrix).
+Only used when the machine has a loopback recording device (a virtual cable) and
+WASAPI capture is unavailable; capture_windows_wasapi.py is the default path.
 
 Two things are different from Linux and both matter:
 
