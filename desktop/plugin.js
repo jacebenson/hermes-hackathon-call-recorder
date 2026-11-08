@@ -282,6 +282,28 @@ function RecorderPane({ ctx }) {
     [ctx, qc]
   )
 
+  // The full transcript belongs in the chat when you want to talk about it; the
+  // SDK's composer bus is the supported way to put text in front of the user.
+  const putInComposer = async (path) => {
+    try {
+      const doc = await ctx.rest('/transcript/read?path=' + encodeURIComponent(path), { timeoutMs: 30000 })
+      const text = String((doc && doc.markdown) || '').trim()
+      if (!text) {
+        host.notify({ kind: 'error', message: 'call-recorder: that transcript is empty' })
+        return
+      }
+      const ok = await host.composer.insertText(null, text, { mode: 'block' })
+      host.notify({
+        kind: ok ? 'info' : 'error',
+        message: ok
+          ? 'call-recorder: transcript added to the composer'
+          : 'call-recorder: no composer to put it in'
+      })
+    } catch (e) {
+      host.notify({ kind: 'error', message: 'call-recorder: ' + (e && e.message ? e.message : e) })
+    }
+  }
+
   const items = (recs.data && recs.data.items) || []
 
   return jsxs('div', {
@@ -445,7 +467,29 @@ function RecorderPane({ ctx }) {
                           className: 'border-t border-(--ui-stroke-secondary)',
                           children: [
                             r.transcript
-                              ? jsx(TranscriptView, { ctx, path: r.transcript })
+                              ? jsxs('div', {
+                                  children: [
+                                    jsxs('div', {
+                                      className:
+                                        'flex items-center justify-between gap-2 border-b border-(--ui-stroke-secondary) px-2 py-1',
+                                      children: [
+                                        jsx('span', {
+                                          className: 'text-[0.6875rem] text-(--ui-text-quaternary)',
+                                          children: 'transcript'
+                                        }),
+                                        jsx(Button, {
+                                          size: 'sm',
+                                          variant: 'secondary',
+                                          disabled: busy,
+                                          title: 'Put the whole transcript in the composer',
+                                          onClick: () => putInComposer(r.transcript),
+                                          children: '→ chat'
+                                        })
+                                      ]
+                                    }),
+                                    jsx(TranscriptView, { ctx, path: r.transcript })
+                                  ]
+                                })
                               : jsxs('div', {
                                   className: 'flex items-center justify-between gap-2 p-2',
                                   children: [
