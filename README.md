@@ -7,6 +7,10 @@ Built because "record the call so I can review it later" should not mean opening
 OBS, hunting for the right PulseAudio source, and losing the half of the
 conversation that came out of your headphones.
 
+Records on **Linux (PipeWire)** and **Windows (WASAPI loopback)**. Neither needs a
+virtual cable: on Windows the loopback is part of the OS, so there is no driver to
+install, no admin rights and no certificate to trust.
+
 ## What it looks like
 
 ![The composer, live transcript strip and record control](docs/screenshots/composer-and-live-strip.png)
@@ -44,14 +48,16 @@ first time this was built.
 
 On the machine whose audio you want to record (the *target host*):
 
-- Linux with PipeWire (`pactl`, `systemd --user`)
-- `ffmpeg`
-- Optional, for transcription: `faster-whisper`, plus `live.py` and `archive.py`
-  from the companion scripts. Without them the plugin still records; it just
-  cannot transcribe.
+- **Linux:** PipeWire with `pactl` and a `systemd --user` session, plus `ffmpeg`.
+- **Windows:** Python 3 and `python -m pip install pyaudiowpatch`, plus `ffmpeg` on
+  PATH. No driver, no admin rights, no reboot — and someone logged in, because a
+  background session has no audio to capture.
+- **Optional, for transcription on either platform:** `faster-whisper` on the target.
+  Without it the plugin still records; it just reports transcription as unavailable.
 
-The machine running the Hermes gateway needs `ssh` access to the target host when
-they are not the same box.
+The machine running the Hermes gateway needs an `ssh` client to reach a remote target
+(Windows 10+ ships `ssh.exe`). Recording the gateway's own machine assumes a POSIX
+shell; point `host` at a machine over SSH on a Windows gateway.
 
 ## Install
 
@@ -129,9 +135,9 @@ and reads back the segment count so the pane can show what actually happened.
 
 | | today |
 | --- | --- |
-| Machine being recorded | **Linux with PipeWire.** It needs `pactl`, `ffmpeg` and a `systemd --user` session. |
-| Machine running Hermes | Linux. Remote targets are reached over SSH; local execution assumes a POSIX shell. |
-| Windows as the recorded machine | **Yes, with nothing installed.** WASAPI loopback is part of the OS, so system audio and the microphone are captured with `pip install pyaudiowpatch` and no driver, no admin rights and no certificate prompt. Proven end to end: 25 seconds of a YouTube video and a voice, system at -34 dB and mic at -31 dB. Needs a logged-in desktop session, because Windows exposes no audio without one. |
+| Machine being recorded | **Linux with PipeWire** (`pactl`, `systemd --user`, `ffmpeg`) or **Windows** (Python 3, `pyaudiowpatch`, `ffmpeg`). Both are proven end to end. |
+| Machine running Hermes | Any OS with an `ssh` client. A remote target is reached over SSH; recording the gateway's own machine assumes a POSIX shell. |
+| Windows as the recorded machine | No install beyond one pip package, no admin, no certificate. Proven end to end: 25 s of a YouTube video and a voice, system at −34 dB and mic at −31 dB. |
 | macOS as the recorded machine | Not supported yet. Needs BlackHole and an avfoundation capture path that has not been tested on real hardware. |
 | Transport | SSH only. No HTTP agent, so nothing new listens on the recorded machine and the SSH key is the credential. |
 
@@ -240,7 +246,7 @@ a call apart from a browser tab, and the start/delay/stop decisions.
 
 ## Limits
 
-- Linux + PipeWire only. No macOS or Windows capture path.
+- Windows and Linux capture. No macOS path yet.
 - English transcription (change `language` in the scripts for anything else).
 - One recording at a time.
 - Voice sessions in the same browser (e.g. a live-voice plugin) also hold the mic
