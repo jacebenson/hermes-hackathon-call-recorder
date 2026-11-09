@@ -244,7 +244,7 @@ function useBrowserCapture(ctx) {
 
 function ComposerRecordButton({ ctx }) {
   const browser = useBrowserCapture(ctx)
-  const choice = useQuery({ queryKey: [ID, 'capture-host'], queryFn: () => ctx.rest('/capture-host'), retry: false })
+  const choice = useQuery({ queryKey: [ID, 'capture-host'], queryFn: () => ctx.rest('/capture-host', { timeoutMs: 15000 }), retry: false })
   const browserMode = choice.data?.capture_mode === 'browser' || ctx.browserCapture.active()
   const qc = useQueryClient()
   // The click flips the button immediately; the request catches up. Starting a
@@ -459,7 +459,7 @@ function RecorderPane({ ctx }) {
   })
   const captureHost = useQuery({
     queryKey: [ID, 'capture-host'],
-    queryFn: () => ctx.rest('/capture-host'),
+    queryFn: () => ctx.rest('/capture-host', { timeoutMs: 15000 }),
     staleTime: 0,
     retry: false
   })
@@ -605,8 +605,12 @@ function RecorderPane({ ctx }) {
           ] })
         ]
       })] }),
-      captureHost.isError ? jsx('div', { role: 'alert', children: 'Cannot load audio source from the Hermes backend. Check the plugin connection and reopen the pane.' }) : null,
-      jsx('div', { 'data-capture-source': true, children: !captureHost.data ? 'Loading audio source…' : browserMode
+      captureHost.isError ? jsxs('div', { role: 'alert', children: [
+        'Cannot load audio source from the Hermes backend: ' + (captureHost.error?.message || 'request failed'),
+        jsx(Button, { size: 'sm', variant: 'ghost', disabled: captureHost.isFetching,
+          onClick: () => captureHost.refetch(), children: 'Retry' })
+      ] }) : null,
+      jsx('div', { 'data-capture-source': true, children: captureHost.isError ? 'Audio source unavailable' : !captureHost.data ? 'Loading audio source…' : browserMode
         ? 'Microphone on this device only' : 'Microphone and system audio on ' + (selectedHost.host_label || cfg.host_label || 'the backend computer') }),
       browserMode ? jsx('div', { className: 'text-[0.6875rem] text-(--ui-text-secondary)',
         children: 'One voice mix, not speaker-separated. No system audio. Live transcription unavailable. Audio uploads to the Hermes backend when stopped.' }) : null,
