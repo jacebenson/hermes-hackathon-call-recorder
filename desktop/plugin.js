@@ -440,7 +440,6 @@ function RecorderPane({ ctx }) {
   const [editingTitle, setEditingTitle] = useState('')
   const [titleDraft, setTitleDraft] = useState('')
   const [diagnosis, setDiagnosis] = useState(null)
-  const [hostMenu, setHostMenu] = useState(false)
   const [hostDraft, setHostDraft] = useState('')
   const collapsed = layout.liveCollapsed
   const toggleLive = () => setLayout((old) => ({ ...old, liveCollapsed: !old.liveCollapsed }))
@@ -516,7 +515,6 @@ function RecorderPane({ ctx }) {
           // The recordings list belongs to the machine that was selected when it was
           // fetched, so a new host must drop the cached list instead of showing it.
           qc.invalidateQueries({ queryKey: [ID, "recordings"], refetchType: "all" })
-          setHostMenu(false)
           setHostDraft('')
           setDiagnosis(null)
         }
@@ -594,14 +592,24 @@ function RecorderPane({ ctx }) {
           })
         : null,
       jsxs('div', { className: 'flex items-center gap-2', children: ['Audio source ', jsxs(Select, {
-        value: browserMode ? 'browser' : 'computer',
+        value: browserMode ? 'browser' : 'host:' + (selectedHost.host || ''),
         disabled: busy || recording || browserActive || !captureHost.data,
-        onValueChange: value => call('/capture-mode', { capture_mode: value }),
+        onValueChange: async value => {
+          if (value === 'browser') return call('/capture-mode', { capture_mode: 'browser' })
+          const confirmed = await call('/capture-host', { host: value.slice(5) })
+          if (confirmed && confirmed.capture_mode !== 'computer') {
+            return call('/capture-mode', { capture_mode: 'computer' })
+          }
+        },
         children: [
-          jsx(SelectTrigger, { 'aria-label': 'Audio source', size: 'sm', className: 'w-auto', children: jsx(SelectValue, {}) }),
+          jsx(SelectTrigger, { 'aria-label': 'Audio source', size: 'sm', className: 'w-auto',
+            title: recording ? 'Stop recording before switching machines' : 'Switch capture machine',
+            children: jsx(SelectValue, {}) }),
           jsxs(SelectContent, { children: [
-            jsx(SelectItem, { value: 'browser', children: 'This browser' }),
-            jsx(SelectItem, { value: 'computer', children: 'A computer' })
+            jsx(SelectItem, { value: 'browser', children: 'This device’s microphone' }),
+            jsx(SelectItem, { value: 'host:', children: 'System audio + mic on ' + (selectedHost.backend_host || 'the backend computer') + ' (this backend)' }),
+            ...(selectedHost.recent_hosts || []).filter(machine => machine.toLowerCase() !== (selectedHost.backend_host || '').toLowerCase())
+              .map(machine => jsx(SelectItem, { value: 'host:' + machine, children: 'System audio + mic on ' + machine }, machine))
           ] })
         ]
       })] }),
@@ -611,9 +619,8 @@ function RecorderPane({ ctx }) {
           onClick: () => captureHost.refetch(), children: 'Retry' })
       ] }) : null,
       jsx('div', { 'data-capture-source': true, children: captureHost.isError ? 'Audio source unavailable' : !captureHost.data ? 'Loading audio source…' : browserMode
-        ? 'Microphone on this device only' : 'Microphone and system audio on ' + (selectedHost.host_label || cfg.host_label || 'the backend computer') }),
-      browserMode ? jsx('div', { className: 'text-[0.6875rem] text-(--ui-text-secondary)',
-        children: 'One voice mix, not speaker-separated. No system audio. Live transcription unavailable. Audio uploads to the Hermes backend when stopped.' }) : null,
+        ? 'One mixed microphone recording that uploads to the Hermes backend when stopped. No system audio. No live transcription.'
+        : 'Microphone and system audio, saved on ' + (selectedHost.host || selectedHost.backend_host || 'the backend computer') + '.' }),
       browserMode && (browser.error || browser.message) ? jsx('div', { role: browser.error ? 'alert' : 'status',
         className: 'text-[0.6875rem]', children: browser.error || browser.message }) : null,
       jsxs('div', { className: 'flex items-center gap-2', children: [
@@ -651,62 +658,29 @@ function RecorderPane({ ctx }) {
             (cfg.host_label || cfg.host || 'that machine') +
             ' - recording only'
       }),
-      jsxs('div', {
-        className: 'flex items-center gap-2',
+      jsx('span', {
+        className: 'ml-auto truncate text-[0.6875rem] text-(--ui-text-quaternary)',
+        children: st.mic || (liveOn ? 'live on' : 'live off')
+      }),
+      jsxs('form', {
+        className: 'flex items-center gap-1',
+        onSubmit: (e) => {
+          e.preventDefault()
+          if (!busy && !recording && !browserActive && hostDraft.trim()) return call('/capture-host', { host: hostDraft })
+        },
         children: [
-          jsx(Button, {
-            size: 'sm', variant: 'secondary',
-            'aria-label': 'Capture machine',
-            'aria-expanded': hostMenu,
-            title: recording ? 'Stop recording before switching machines' : 'Switch capture machine',
-            disabled: busy || recording || browserActive,
-            className: 'min-w-0 max-w-40 truncate',
-            onClick: () => setHostMenu(!hostMenu),
-            children: selectedHost.host_label || cfg.host_label || cfg.host || 'Capture machine…'
+          jsx(Input, {
+            'aria-label': 'New capture machine',
+            placeholder: 'Hostname or SSH alias', maxLength: 253,
+            value: hostDraft, disabled: busy || recording || browserActive,
+            onChange: (e) => setHostDraft(e.target.value)
           }),
-          jsx('span', {
-            className: 'ml-auto truncate text-[0.6875rem] text-(--ui-text-quaternary)',
-            children: st.mic || (liveOn ? 'live on' : 'live off')
+          jsx(Button, {
+            type: 'submit', size: 'sm', disabled: busy || recording || browserActive || !hostDraft.trim(),
+            children: 'Use'
           })
         ]
       }),
-      hostMenu ? jsxs('div', {
-        role: 'group', 'aria-label': 'Choose capture machine',
-        className: 'flex flex-col gap-1 rounded border border-(--ui-stroke-secondary) p-2',
-        onKeyDown: (e) => { if (e.key === 'Escape') setHostMenu(false) },
-        children: [
-          jsx(Button, {
-            size: 'sm', variant: 'ghost', disabled: busy || recording || browserActive,
-            title: 'Record on the machine running the Hermes backend',
-            onClick: () => call('/capture-host', { host: '' }),
-            children: 'This machine'
-          }),
-          ...(selectedHost.recent_hosts || []).map((machine) => jsx(Button, {
-            size: 'sm', variant: 'ghost', disabled: busy || recording || browserActive,
-            onClick: () => call('/capture-host', { host: machine }),
-            children: machine
-          }, machine)),
-          jsxs('form', {
-            className: 'flex items-center gap-1',
-            onSubmit: (e) => {
-              e.preventDefault()
-              if (!busy && !recording && hostDraft.trim()) return call('/capture-host', { host: hostDraft })
-            },
-            children: [
-              jsx(Input, {
-                autoFocus: true, 'aria-label': 'New capture machine',
-                placeholder: 'Hostname or SSH alias', maxLength: 253,
-                value: hostDraft, disabled: busy || recording || browserActive,
-                onChange: (e) => setHostDraft(e.target.value)
-              }),
-              jsx(Button, {
-                type: 'submit', size: 'sm', disabled: busy || recording || browserActive || !hostDraft.trim(),
-                children: 'Use'
-              })
-            ]
-          })
-        ]
-      }) : null,
       cfg.readiness && cfg.readiness.state && cfg.readiness.state !== 'ready'
         ? jsxs('div', {
             className:
