@@ -4,7 +4,8 @@ import assert from 'node:assert/strict'
 
 // Run the actual plugin with a small React/SDK host at its public contributions.
 const notes = [], requests = [], invalidations = [], queries = []
-let values = [], cursor = 0, effects = [], data = {}, response = { ok: true }
+let values = [], cursor = 0, effects = [], data = {}, response = { ok: true }, sourceQuery = null
+let sourceRetries = 0
 const jsx = (type, props, key) => ({ type, props: props || {}, key })
 const react = {
   useState(init) {
@@ -26,7 +27,7 @@ const sdk = {
   Select: 'Select', SelectTrigger: 'SelectTrigger', SelectValue: 'SelectValue', SelectContent: 'SelectContent', SelectItem: 'SelectItem',
   cn: (...v) => v.filter(Boolean).join(' '),
   host: { state: identity, notify: n => notes.push(n), composer: { insertText: async () => true } },
-  useQuery: q => { queries.push(q); return { data: q.queryKey[1] in data ? data[q.queryKey[1]] : {}, dataUpdatedAt: Date.now() } },
+  useQuery: q => { queries.push(q); if (q.queryKey[1] === 'capture-host' && sourceQuery) return sourceQuery; return { data: q.queryKey[1] in data ? data[q.queryKey[1]] : {}, dataUpdatedAt: Date.now() } },
   useQueryClient: () => ({ invalidateQueries: v => invalidations.push(v), setQueryData: (key, fn) => { data[key[1]] = fn(data[key[1]]) } })
 }
 const layoutKey = 'call-recorder.layout.v1'
@@ -69,6 +70,22 @@ const button = (tree, label) => nodes(tree).find(n => n.props.children === label
 const reset = () => { values = []; storage.clear(); notes.length = 0; requests.length = 0; invalidations.length = 0 }
 const rowButton = (tree, title) => nodes(tree).find(n => n.type === 'button' && nodes(n).some(c => c.props.children === title))
 const liveButton = tree => nodes(tree).find(n => n.props['aria-label'] === 'Toggle live transcript')
+
+// A failed source query must stop loading, retain the backend error and offer retry.
+reset()
+sourceQuery = { isError: true, error: new Error('404: Not Found'), data: undefined,
+  refetch: () => { sourceRetries++ } }
+const failedSource = render('call-recorder-pane')
+assert(!nodes(failedSource).some(n => n.props.children === 'Loading audio source…'))
+assert(nodes(failedSource).some(n => String(n.props.children).includes('404: Not Found')))
+await button(failedSource, 'Retry').props.onClick()
+assert.equal(sourceRetries, 1)
+for (const q of queries.filter(q => q.queryKey[1] === 'capture-host')) {
+  requests.length = 0
+  await q.queryFn()
+  assert.equal(requests[0].options.timeoutMs, 15000)
+}
+sourceQuery = null
 
 // A saved set can restore several rows, without conflating identical paths on machines.
 reset()
