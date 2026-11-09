@@ -100,6 +100,16 @@ class BrowserCaptureTests(unittest.TestCase):
         self.assertTrue(library.delete(path, 'browser')['ok'])
         self.assertFalse(Path(path).exists())
 
+    def test_browser_stored_transcript_reads_through_real_route(self):
+        library = RecordingLibrary()
+        uploaded = library.store_browser(self.audio(), 'audio/webm')
+        self.assertTrue(uploaded['ok'], uploaded)
+        transcript = Path(uploaded['file']).with_suffix('.transcript.md')
+        transcript.write_text('# browser transcript\n')
+        with patch.object(api, 'recorder', side_effect=AssertionError('must use stored provenance')):
+            self.assertEqual(asyncio.run(api.read_transcript(str(transcript), 'browser')),
+                             {'ok': True, 'markdown': '# browser transcript\n'})
+
     def test_upload_rejects_empty_invalid_and_oversize_without_files(self):
         library = RecordingLibrary()
         for content, mime in [(b'', 'audio/webm'), (b'not audio', 'audio/webm'), (b'foo', 'text/html')]:

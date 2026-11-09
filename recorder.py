@@ -527,27 +527,44 @@ class Recorder:
 
     # -- delete -------------------------------------------------------------- #
 
+    def _mine(self, path: str, pattern: str) -> tuple[str, str | None]:
+        """Confine a caller's path to one of our names in the configured directory."""
+        import ntpath
+        import posixpath
+
+        if not isinstance(path, str):
+            return "", "file is required"
+        windows = self.os_name == "windows"
+        paths = ntpath if windows else posixpath
+        name = paths.basename(path)
+        if not re.fullmatch(pattern, name):
+            return "", "not a recording of mine"
+        if windows:
+            from capture_windows import resolved_dir
+            directory = resolved_dir(self).rstrip("\\/")
+        else:
+            directory = self.rec_dir().rstrip("/")
+        if paths.normcase(paths.dirname(path)) != paths.normcase(directory):
+            return "", "outside the recordings directory"
+        return paths.join(directory, name), None
+
+    def validate_recording(self, path: str) -> dict:
+        """Validate before any archive work, including runtime discovery."""
+        target, error = self._mine(path, r"call-\d{8}-\d{6}\.mkv")
+        return {"ok": False, "error": error} if error else {"ok": True, "file": target}
+
     def delete_recording(self, path: str) -> dict:
         """Remove only a recording in the configured directory and its transcript."""
         import ntpath
         import posixpath
 
-        if not isinstance(path, str):
-            return {"ok": False, "error": "file is required"}
         windows = self.os_name == "windows"
         paths = ntpath if windows else posixpath
-        name = paths.basename(path)
-        if not re.fullmatch(r"call-\d{8}-\d{6}\.mkv", name):
-            return {"ok": False, "error": "not a recording of mine"}
         try:
-            if windows:
-                from capture_windows import resolved_dir
-                directory = resolved_dir(self).rstrip("\\/")
-            else:
-                directory = self.rec_dir().rstrip("/")
-            if paths.normcase(paths.dirname(path)) != paths.normcase(directory):
-                return {"ok": False, "error": "outside the recordings directory"}
-            target = paths.join(directory, name)
+            target, error = self._mine(path, r"call-\d{8}-\d{6}\.mkv")
+            if error:
+                return {"ok": False, "error": error}
+            name = paths.basename(target)
             transcript = target[:-4] + ".transcript.md"
             live = target[:-4] + ".live.txt"
             if windows:
@@ -646,7 +663,13 @@ class Recorder:
         return items
 
     def read_transcript(self, path: str, limit_lines: int = 4000) -> str:
-        return self.run(f"head -n {int(limit_lines)} {shlex.quote(path)}")[1]
+        target, error = self._mine(path, r"call-\d{8}-\d{6}\.(transcript\.md|live\.txt)")
+        if error:
+            raise ValueError(error)
+        if self.os_name == "windows":
+            from capture_windows_wasapi import _q
+            return self.run(f"Get-Content -LiteralPath {_q(target)} -TotalCount {int(limit_lines)}")[1]
+        return self.run(f"head -n {int(limit_lines)} {shlex.quote(target)}")[1]
 
 
 
