@@ -48,6 +48,7 @@ from recording_library import RecordingLibrary  # noqa: E402
 from platforms import readiness as platform_readiness, diagnose  # noqa: E402
 from transcribe import transcribe as run_transcription, transcribe_from_live  # noqa: E402
 from recorder import (  # noqa: E402
+    CaptureUnavailable,
     Recorder,
     choose_source,
     detect_transcription,
@@ -415,6 +416,10 @@ def _watch() -> None:
                 decision = _after_stop(rec, decision)
             if decision.get("action") not in ("idle", "recording"):
                 _log.info("call-recorder: %s", decision)
+        except CaptureUnavailable as exc:
+            # Not transient: retrying every few seconds only floods the log.
+            _log.warning("call-recorder watcher stopped: %s", exc)
+            return
         except Exception as exc:  # a dead SSH target must not kill the watcher
             _log.warning("call-recorder watcher: %s", exc)
         time.sleep(interval)
@@ -650,7 +655,10 @@ async def post_start(body: dict | None = None) -> dict:
             if settings().get('capture_mode') == 'browser':
                 return {'ok': False, 'error': 'This browser is selected. Press Record in the browser to allow microphone access; computer capture will not be started.'}
             ensure_watcher()
-            return recorder().start(live=bool((body or {}).get('live')))
+            try:
+                return recorder().start(live=bool((body or {}).get('live')))
+            except CaptureUnavailable as exc:
+                return {'ok': False, 'error': str(exc), 'unavailable': True}
     return await asyncio.to_thread(start)
 
 
