@@ -12,7 +12,7 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import * as sdk from '@hermes/plugin-sdk'
 
-const { Badge, Button, Input, StatusDot, Switch, cn, host, useQuery, useQueryClient } = sdk
+const { Badge, Button, Input, Select, SelectTrigger, SelectValue, SelectContent, SelectItem, StatusDot, Switch, cn, host, useQuery, useQueryClient } = sdk
 
 const ID = 'call-recorder'
 const recordingKey = (row) => (row.machine || '') + ':' + row.file
@@ -593,12 +593,18 @@ function RecorderPane({ ctx }) {
             children: 'This window is talking to a Hermes backend that is not answering for this plugin. If the plugin is installed somewhere else, open Settings and check where it is enabled.'
           })
         : null,
-      jsx('label', { children: jsxs('span', { children: ['Audio source ', jsx('select', {
-        'aria-label': 'Audio source', value: browserMode ? 'browser' : 'computer',
+      jsxs('div', { className: 'flex items-center gap-2', children: ['Audio source ', jsxs(Select, {
+        value: browserMode ? 'browser' : 'computer',
         disabled: busy || recording || browserActive || !captureHost.data,
-        onChange: e => call('/capture-mode', { capture_mode: e.target.value }),
-        children: [jsx('option', { value: 'browser', children: 'This browser' }), jsx('option', { value: 'computer', children: 'A computer' })]
-      })] }) }),
+        onValueChange: value => call('/capture-mode', { capture_mode: value }),
+        children: [
+          jsx(SelectTrigger, { 'aria-label': 'Audio source', size: 'sm', className: 'w-auto', children: jsx(SelectValue, {}) }),
+          jsxs(SelectContent, { children: [
+            jsx(SelectItem, { value: 'browser', children: 'This browser' }),
+            jsx(SelectItem, { value: 'computer', children: 'A computer' })
+          ] })
+        ]
+      })] }),
       captureHost.isError ? jsx('div', { role: 'alert', children: 'Cannot load audio source from the Hermes backend. Check the plugin connection and reopen the pane.' }) : null,
       jsx('div', { 'data-capture-source': true, children: !captureHost.data ? 'Loading audio source…' : browserMode
         ? 'Microphone on this device only' : 'Microphone and system audio on ' + (selectedHost.host_label || cfg.host_label || 'the backend computer') }),
