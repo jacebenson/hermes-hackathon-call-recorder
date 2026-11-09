@@ -39,7 +39,7 @@ const localStorage = {
 const context = vm.createContext({ console, Date, localStorage, setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1, clearInterval() {} })
 const contributions = [], disposers = []
 const ctx = { onDispose: fn => disposers.push(fn), register: c => contributions.push(c), storage: { get: () => true, set() {} },
-  rest: async (path, options) => { requests.push({ path, options }); return response } }
+  rest: async (path, options) => { requests.push({ path, options }); return typeof response === 'function' ? response(path, options) : response } }
 const reloadPlugin = async () => {
   for (const dispose of disposers.splice(0)) dispose()
   values = []
@@ -124,9 +124,8 @@ assert.equal(rowButton(restored, 'Other').props['aria-expanded'], true)
 assert.equal(liveButton(restored).props['aria-expanded'], true)
 // Switching capture machine keeps all remembered rows, including absent ones.
 const savedLayout = storage.get(layoutKey)
-nodes(restored).find(n => n.props['aria-label'] === 'Capture machine').props.onClick()
-response = { ok: true, host: '', host_label: 'local' }
-await button(render('call-recorder-pane'), 'This machine').props.onClick()
+response = { ok: true, capture_mode: 'computer', host: '', host_label: 'local' }
+await nodes(restored).find(n => n.type === 'Select').props.onValueChange('host:')
 restored = render('call-recorder-pane')
 assert.equal(storage.get(layoutKey), savedLayout)
 assert.equal(rowButton(restored, 'Beta').props['aria-expanded'], true)
@@ -287,9 +286,9 @@ assert(nodes(tree).some(n => n.props.children === 'failed: Microphone missing.')
 assert.equal(notes.length, 0)
 assert(button(tree, 'Check again'))
 for (const host of ['local (hermes-host)', 'audio-laptop']) {
-  reset(); data = { status: { host: 'local' }, config: { host: host === 'audio-laptop' ? host : 'local', host_label: host, transcription: true, transcription_detail: 'tiny.en on cpu' } }
+  reset(); data = { status: { host: 'local' }, 'capture-host': { host: host === 'audio-laptop' ? host : '', backend_host: 'hermes-host', capture_mode: 'computer' }, config: { host: host === 'audio-laptop' ? host : 'local', host_label: host, transcription: true, transcription_detail: 'tiny.en on cpu' } }
   tree = render('call-recorder-pane')
-  assert(nodes(tree).some(n => n.props.children === host))
+  assert(nodes(tree).some(n => n.props.children === 'Microphone and system audio, saved on ' + (host === 'audio-laptop' ? host : 'hermes-host') + '.'))
   assert(!nodes(tree).some(n => n.props.children === 'local'))
   assert(nodes(tree).some(n => String(n.props.children).includes('tiny.en on cpu')))
 }
@@ -353,76 +352,89 @@ button(tree, 'delete').props.onClick()
 response = { ok: true }
 await button(render('call-recorder-pane'), 'confirm').props.onClick()
 assert.deepEqual(data.recordings.items.map(r => r.machine), ['backend'])
-// Capture machine selection lives beside Start/Stop, never behind Settings.
-reset()
-data = { status: {}, 'capture-host': { host: 'framework', host_label: 'framework', recent_hosts: ['framework', 'audio-laptop'] } }
-tree = render('call-recorder-pane')
-let picker = nodes(tree).find(n => n.props['aria-label'] === 'Capture machine')
-assert(picker, 'capture machine control exists')
-assert.equal(picker.props.children, 'framework')
-assert(nodes(tree).some(n => n.type === 'details' && nodes(n).some(c => c.props['aria-label'] === 'Capture machine')), 'machine override is behind the advanced disclosure')
-assert(button(tree, 'Record'), 'plain Record action remains visible')
-picker.props.onClick()
-tree = render('call-recorder-pane')
-assert(button(tree, 'This machine'))
-response = { ok: true, host: 'audio-laptop', host_label: 'audio-laptop', recent_hosts: ['audio-laptop', 'framework'] }
-await button(tree, 'audio-laptop').props.onClick()
-assert.equal(requests[0].path, '/capture-host')
-assert.equal(requests[0].options.method, 'POST')
-assert.equal(requests[0].options.body.host, 'audio-laptop')
-assert.equal(nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'Capture machine').props.children, 'audio-laptop')
-assert(invalidations.some(v => v.queryKey[0] === 'call-recorder'))
-nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'Capture machine').props.onClick()
-response = { ok: true, host: '', host_label: 'local (hermes-host)', recent_hosts: ['audio-laptop', 'framework'] }
-await button(render('call-recorder-pane'), 'This machine').props.onClick()
-assert.equal(requests.at(-1).options.body.host, '')
-assert.equal(nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'Capture machine').props.children, 'local (hermes-host)')
-nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'Capture machine').props.onClick()
-let hostInput = nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'New capture machine')
-hostInput.props.onChange({ target: { value: 'new-host' } })
-response = { ok: false, error: 'disk full' }
-invalidations.length = 0
-await nodes(render('call-recorder-pane')).find(n => n.type === 'form').props.onSubmit({ preventDefault() {} })
-assert.equal(requests.at(-1).options.body.host, 'new-host')
-assert.equal(nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'Capture machine').props.children, 'local (hermes-host)')
-assert(notes.some(n => n.kind === 'error' && n.message.includes('disk full')))
-assert.equal(invalidations.length, 0)
-assert(nodes(render('call-recorder-pane')).some(n => n.props['aria-label'] === 'New capture machine'))
-response = { ok: true, host: 'new-host', host_label: 'new-host', recent_hosts: ['new-host', 'audio-laptop', 'framework'] }
-await nodes(render('call-recorder-pane')).find(n => n.type === 'form').props.onSubmit({ preventDefault() {} })
-assert.equal(nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'Capture machine').props.children, 'new-host')
-assert(!nodes(render('call-recorder-pane')).some(n => n.props['aria-label'] === 'New capture machine'))
-data.status.recording = true
-assert.equal(nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'Capture machine').props.disabled, true)
-// Browser mode names exactly the source, hides SSH controls, and reports insecure context inline.
+// One themed capture target combines microphone and machine selection.
 reset()
 await reloadPlugin()
-data = {status: {}, 'capture-host': {capture_mode: 'browser', host: 'preserved-computer'}, config: {}, recordings: {items: []}}
-tree = render('call-recorder-pane')
-assert(nodes(tree).some(n => n.props.children === 'Microphone on this device only'))
-assert.equal(nodes(tree).find(n => n.type === 'Select').props.value, 'browser')
 const sourceSelect = () => nodes(render('call-recorder-pane')).find(n => n.type === 'Select')
+const optionPairs = () => nodes(render('call-recorder-pane')).filter(n => n.type === 'SelectItem').map(n => [n.props.value, n.props.children])
+data = {status: {}, 'capture-host': {capture_mode: 'browser', host: 'framework', backend_host: 'hermes-host', recent_hosts: ['hermes-host', 'framework', 'audio-laptop', 'HERMES-HOST']}, config: {}, recordings: {items: []}}
+tree = render('call-recorder-pane')
+assert.equal(nodes(tree).filter(n => n.props['aria-label'] === 'Audio source').length, 1)
+assert(!nodes(tree).some(n => n.props['aria-label'] === 'Capture machine'))
+assert.equal(nodes(tree).filter(n => n.type === 'Select').length, 1)
 const sourceTrigger = nodes(tree).find(n => n.props['aria-label'] === 'Audio source')
-assert.equal(sourceTrigger.type, 'SelectTrigger', 'accessible name belongs to the themed trigger')
+assert.equal(sourceTrigger.type, 'SelectTrigger')
 assert(nodes(sourceTrigger).some(n => n.type === 'SelectValue'))
+assert(!nodes(tree).some(n => n.type === 'select'))
+assert.deepEqual(optionPairs(), [
+  ['browser', 'This device’s microphone'],
+  ['host:', 'System audio + mic on hermes-host (this backend)'],
+  ['host:framework', 'System audio + mic on framework'],
+  ['host:audio-laptop', 'System audio + mic on audio-laptop']
+])
+assert.equal(sourceSelect().props.value, 'browser')
 assert.equal(sourceSelect().props.disabled, false)
-assert(!nodes(tree).some(n => n.type === 'select'), 'audio source must not regress to an unthemed native select')
-const sourceContent = nodes(tree).find(n => n.type === 'SelectContent')
-assert.deepEqual(nodes(sourceContent).filter(n => n.type === 'SelectItem').map(n => [n.props.value, n.props.children]),
-  [['browser', 'This browser'], ['computer', 'A computer']])
+assert(nodes(tree).some(n => n.props['data-capture-source'] && n.props.children === 'One mixed microphone recording that uploads to the Hermes backend when stopped. No system audio. No live transcription.'))
 for (const mode of ['computer', 'browser']) {
-  response = { ok: true, capture_mode: mode, host: 'preserved-computer' }
-  const write = sourceSelect().props.onValueChange(mode)
+  requests.length = 0
+  response = { ...data['capture-host'], ok: true, capture_mode: mode, host: 'audio-laptop' }
+  const write = sourceSelect().props.onValueChange(mode === 'browser' ? 'browser' : 'host:audio-laptop')
   assert.equal(sourceSelect().props.disabled, true, 'pending setting write locks the source')
   await write
-  assert.equal(requests.at(-1).path, '/capture-mode')
-  assert.equal(requests.at(-1).options.method, 'POST')
-  assert.equal(requests.at(-1).options.body.capture_mode, mode)
-  assert.equal(sourceSelect().props.value, mode)
+  assert.deepEqual(JSON.parse(JSON.stringify(requests.map(r => [r.path, r.options.method, r.options.body]))), mode === 'browser'
+    ? [['/capture-mode', 'POST', {capture_mode: 'browser'}]]
+    : [['/capture-host', 'POST', {host: 'audio-laptop'}]])
+  assert.equal(sourceSelect().props.value, mode === 'browser' ? 'browser' : 'host:audio-laptop')
   assert.equal(sourceSelect().props.disabled, false)
 }
+// Only a confirmed host response still outside computer mode needs the mode call.
+requests.length = 0
+response = path => {
+  return {...data['capture-host'], ok: true, host: 'framework', capture_mode: path === '/capture-host' ? 'browser' : 'computer'}
+}
+await sourceSelect().props.onValueChange('host:framework')
+assert.deepEqual(JSON.parse(JSON.stringify(requests.map(r => [r.path, r.options.body]))), [
+  ['/capture-host', {host: 'framework'}], ['/capture-mode', {capture_mode: 'computer'}]
+])
+assert.equal(sourceSelect().props.value, 'host:framework')
+assert(nodes(render('call-recorder-pane')).some(n => n.props['data-capture-source'] && n.props.children === 'Microphone and system audio, saved on framework.'))
+assert(invalidations.some(v => v.queryKey[1] === 'recordings' && v.refetchType === 'all'))
+response = {...data['capture-host'], ok: true, capture_mode: 'computer', host: ''}
+await sourceSelect().props.onValueChange('host:')
+assert.equal(requests.at(-1).options.body.host, '')
+assert.equal(sourceSelect().props.value, 'host:')
+assert(nodes(render('call-recorder-pane')).some(n => n.props['data-capture-source'] && n.props.children === 'Microphone and system audio, saved on hermes-host.'))
+// Free-text machine entry remains in advanced settings, without another picker.
+let hostInput = nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'New capture machine')
+hostInput.props.onChange({target: {value: 'new-host'}})
+response = {ok: false, error: 'disk full'}
+invalidations.length = 0
+await nodes(render('call-recorder-pane')).find(n => n.type === 'form').props.onSubmit({preventDefault() {}})
+assert.equal(requests.at(-1).options.body.host, 'new-host')
+assert.equal(sourceSelect().props.value, 'host:')
+assert(notes.some(n => n.message.includes('disk full')))
+assert.equal(invalidations.length, 0)
+response = {...data['capture-host'], ok: true, host: 'new-host', recent_hosts: ['new-host']}
+await nodes(render('call-recorder-pane')).find(n => n.type === 'form').props.onSubmit({preventDefault() {}})
+assert.equal(sourceSelect().props.value, 'host:new-host')
+assert.equal(nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'New capture machine').props.value, '')
+// Missing backend identity has an explicit fallback and never invents a host.
+data['capture-host'] = {capture_mode: 'browser'}
+assert.deepEqual(optionPairs(), [['browser', 'This device’s microphone'], ['host:', 'System audio + mic on the backend computer (this backend)']])
 data.status.recording = true
 assert.equal(sourceSelect().props.disabled, true, 'computer recording locks the source')
+assert.equal(nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'Audio source').props.title, 'Stop recording before switching machines')
+// The surviving free-text input cannot bypass the recording lock.
+const lockedHost = {capture_mode: 'computer', host: 'framework', backend_host: 'hermes-host'}
+const previousSource = data['capture-host']
+data['capture-host'] = lockedHost
+const lockedInput = nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'New capture machine')
+assert.equal(lockedInput.props.disabled, true)
+lockedInput.props.onChange({target: {value: 'forbidden'}})
+const beforeLockedSubmit = requests.length
+await nodes(render('call-recorder-pane')).find(n => n.type === 'form').props.onSubmit({preventDefault() {}})
+assert.equal(requests.length, beforeLockedSubmit)
+data['capture-host'] = previousSource
 data.status.recording = false
 const confirmedSource = data['capture-host']
 data['capture-host'] = undefined
@@ -438,14 +450,16 @@ for (const phase of ['pending', 'recording', 'stopping', 'uploading']) {
 paneCapture.get = originalGet
 paneCapture.active = originalActive
 response = { ok: false, error: 'source save denied' }
-await sourceSelect().props.onValueChange('computer')
+requests.length = 0
+await sourceSelect().props.onValueChange('host:framework')
+assert.deepEqual(requests.map(r => r.path), ['/capture-host'], 'failed host selection must not change mode')
 assert.equal(sourceSelect().props.value, 'browser', 'failed writes preserve the confirmed selection')
 assert(notes.some(n => n.kind === 'error' && n.message.includes('source save denied')))
 tree = render('call-recorder-pane')
 assert(!nodes(tree).some(n => n.props['aria-label'] === 'Capture machine'))
 assert(!button(tree, 'Test'))
 assert.equal(queries.filter(q=>q.queryKey[1]==='live').at(-1).enabled,false, 'browser mode must not fetch native live transcript')
-assert(nodes(tree).some(n => String(n.props.children).includes('One voice mix, not speaker-separated')))
+assert(nodes(tree).some(n => String(n.props.children).includes('One mixed microphone recording')))
 await button(tree, 'Record').props.onClick()
 tree = render('call-recorder-pane')
 assert(nodes(tree).some(n => n.props.role === 'alert' && n.props.children.includes('HTTPS')))

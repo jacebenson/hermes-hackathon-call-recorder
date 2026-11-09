@@ -41,6 +41,16 @@ class CaptureHostTests(unittest.TestCase):
         with patch.object(api, 'manifest_settings', return_value={'host': 'from-settings'}):
             self.assertEqual(api.settings()['host'], 'from-settings')
 
+    def test_backend_hostname_is_present_in_both_capture_modes(self):
+        with patch.object(api.socket, 'gethostname', return_value='hermes-backend'):
+            for mode in ('browser', 'computer'):
+                with self.subTest(mode=mode):
+                    self.path.write_text(json.dumps({'capture_mode': mode, 'host': 'remote'}))
+                    self.assertEqual(self.get()['backend_host'], 'hermes-backend')
+            with patch.object(api, 'browser_transcription', return_value={'ok': False}):
+                self.path.write_text(json.dumps({'capture_mode': 'browser', 'host': 'remote'}))
+                self.assertEqual(api._config_payload()['backend_host'], 'hermes-backend')
+
     def test_local_clears_the_setting_and_labels_the_backend(self):
         for host in ('local', ''):
             self.assertTrue(self.choose(host)['ok'])

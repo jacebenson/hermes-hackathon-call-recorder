@@ -416,6 +416,7 @@ def _config_payload() -> dict:
         transc = browser_transcription()
         return {"ok": True, "capture_mode": "browser", "host": cfg["host"] or "local",
                 "host_label": cfg["host"] or f"backend ({socket.gethostname()})",
+                "backend_host": socket.gethostname(),
                 "transcription": bool(transc.get("ok")), "live": False,
                 "transcription_detail": "Backend Whisper available" if transc.get("ok") else "Backend Whisper unavailable"}
     src = resolved_source()
@@ -490,6 +491,7 @@ def _capture_host_payload(saved: dict | None = None) -> dict:
     host = settings()["host"]
     return {"ok": True, "capture_mode": settings()["capture_mode"], "host": host,
             "host_label": host or f"local ({socket.gethostname()})",
+            "backend_host": socket.gethostname(),
             "recent_hosts": _recent_hosts(saved, host)}
 
 
