@@ -22,9 +22,11 @@ const atom = initial => {
 }
 const identity={connectionId:atom('original'),profile:atom('default'),gateway:atom('open')}
 const sdk = {
-  Button: 'Button', Input: 'Input', Badge: 'Badge', StatusDot: 'StatusDot', Switch: 'Switch', cn: (...v) => v.filter(Boolean).join(' '),
+  Button: 'Button', Input: 'Input', Badge: 'Badge', StatusDot: 'StatusDot', Switch: 'Switch',
+  Select: 'Select', SelectTrigger: 'SelectTrigger', SelectValue: 'SelectValue', SelectContent: 'SelectContent', SelectItem: 'SelectItem',
+  cn: (...v) => v.filter(Boolean).join(' '),
   host: { state: identity, notify: n => notes.push(n), composer: { insertText: async () => true } },
-  useQuery: q => { queries.push(q); return { data: data[q.queryKey[1]] || {}, dataUpdatedAt: Date.now() } },
+  useQuery: q => { queries.push(q); return { data: q.queryKey[1] in data ? data[q.queryKey[1]] : {}, dataUpdatedAt: Date.now() } },
   useQueryClient: () => ({ invalidateQueries: v => invalidations.push(v), setQueryData: (key, fn) => { data[key[1]] = fn(data[key[1]]) } })
 }
 const layoutKey = 'call-recorder.layout.v1'
@@ -381,7 +383,48 @@ await reloadPlugin()
 data = {status: {}, 'capture-host': {capture_mode: 'browser', host: 'preserved-computer'}, config: {}, recordings: {items: []}}
 tree = render('call-recorder-pane')
 assert(nodes(tree).some(n => n.props.children === 'Microphone on this device only'))
-assert.equal(nodes(tree).find(n => n.props['aria-label'] === 'Audio source').props.value, 'browser')
+assert.equal(nodes(tree).find(n => n.type === 'Select').props.value, 'browser')
+const sourceSelect = () => nodes(render('call-recorder-pane')).find(n => n.type === 'Select')
+const sourceTrigger = nodes(tree).find(n => n.props['aria-label'] === 'Audio source')
+assert.equal(sourceTrigger.type, 'SelectTrigger', 'accessible name belongs to the themed trigger')
+assert(nodes(sourceTrigger).some(n => n.type === 'SelectValue'))
+assert.equal(sourceSelect().props.disabled, false)
+assert(!nodes(tree).some(n => n.type === 'select'), 'audio source must not regress to an unthemed native select')
+const sourceContent = nodes(tree).find(n => n.type === 'SelectContent')
+assert.deepEqual(nodes(sourceContent).filter(n => n.type === 'SelectItem').map(n => [n.props.value, n.props.children]),
+  [['browser', 'This browser'], ['computer', 'A computer']])
+for (const mode of ['computer', 'browser']) {
+  response = { ok: true, capture_mode: mode, host: 'preserved-computer' }
+  const write = sourceSelect().props.onValueChange(mode)
+  assert.equal(sourceSelect().props.disabled, true, 'pending setting write locks the source')
+  await write
+  assert.equal(requests.at(-1).path, '/capture-mode')
+  assert.equal(requests.at(-1).options.method, 'POST')
+  assert.equal(requests.at(-1).options.body.capture_mode, mode)
+  assert.equal(sourceSelect().props.value, mode)
+  assert.equal(sourceSelect().props.disabled, false)
+}
+data.status.recording = true
+assert.equal(sourceSelect().props.disabled, true, 'computer recording locks the source')
+data.status.recording = false
+const confirmedSource = data['capture-host']
+data['capture-host'] = undefined
+assert.equal(sourceSelect().props.disabled, true, 'unloaded source locks the control')
+data['capture-host'] = confirmedSource
+const paneCapture = contributions.find(c => c.id === 'call-recorder-pane').render().props.ctx.browserCapture
+const originalGet = paneCapture.get, originalActive = paneCapture.active
+for (const phase of ['pending', 'recording', 'stopping', 'uploading']) {
+  paneCapture.get = () => ({ phase, started: Date.now() })
+  paneCapture.active = () => true
+  assert.equal(sourceSelect().props.disabled, true, 'browser ' + phase + ' locks the source')
+}
+paneCapture.get = originalGet
+paneCapture.active = originalActive
+response = { ok: false, error: 'source save denied' }
+await sourceSelect().props.onValueChange('computer')
+assert.equal(sourceSelect().props.value, 'browser', 'failed writes preserve the confirmed selection')
+assert(notes.some(n => n.kind === 'error' && n.message.includes('source save denied')))
+tree = render('call-recorder-pane')
 assert(!nodes(tree).some(n => n.props['aria-label'] === 'Capture machine'))
 assert(!button(tree, 'Test'))
 assert.equal(queries.filter(q=>q.queryKey[1]==='live').at(-1).enabled,false, 'browser mode must not fetch native live transcript')
