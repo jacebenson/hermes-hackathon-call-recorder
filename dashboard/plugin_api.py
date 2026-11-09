@@ -92,13 +92,34 @@ def _as_int(value, default: int) -> int:
         return default
 
 
+def _settings_home() -> Path:
+    """Resolve the profile before falling back to its config.yaml.
+
+    The installed dashboard contract only supplies a router, not the
+    PluginContext needed by PluginContext.get_config (hermes_cli/plugins.py).
+    """
+    override = os.environ.get("HERMES_HOME")
+    if override:
+        return Path(override).expanduser()
+    root = Path.home() / ".hermes"
+    profile = os.environ.get("HERMES_PROFILE_NAME") or os.environ.get("HERMES_PROFILE")
+    if not profile:
+        try:
+            profile = (root / "active_profile").read_text(encoding="utf-8-sig").strip()
+        except (OSError, UnicodeError):
+            profile = "default"
+    if profile != "default" and re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", profile):
+        return root / "profiles" / profile
+    return root
+
+
 def manifest_settings() -> dict:
     """Values the application wrote for this plugin's ``config_schema``.
 
     They live at ``plugins.entries.call-recorder.settings`` in config.yaml, which is
     what the Settings → Plugins form writes, so the UI is the source of truth.
     """
-    home = os.environ.get("HERMES_HOME") or str(Path.home() / ".hermes")
+    home = _settings_home()
     try:
         import yaml
     except ImportError:
@@ -155,10 +176,10 @@ def settings() -> dict:
     return merged
 
 
-def recorder() -> Recorder:
+def recorder(*, transcription: bool = True) -> Recorder:
     cfg = settings()
     src = resolved_source()
-    transc = resolved_transcription()
+    transc = resolved_transcription() if transcription else {}
     live = Recorder(
         host=src["host"],
         recordings_dir=cfg["recordings_dir"],
@@ -235,11 +256,11 @@ def resolved_transcription() -> dict:
     return result
 
 
-def action_recorder(path: str, machine: str = ""):
+def action_recorder(path: str, machine: str = "", *, transcription: bool = True):
     target = RecordingLibrary().target(path, machine)
     if target:
         return target[0]
-    rec = recorder()
+    rec = recorder() if transcription else recorder(transcription=False)
     if machine and machine != (rec.host or socket.gethostname()):
         raise ValueError("Capture machine changed. Refresh the recordings list.")
     return rec
@@ -732,7 +753,10 @@ async def get_recordings(limit: int = 20) -> dict:
 @router.get("/transcript/read")
 async def read_transcript(path: str, machine: str = "") -> dict:
     def _read() -> dict:
-        return {"ok": True, "markdown": action_recorder(path, machine).read_transcript(path)}
+        try:
+            return {"ok": True, "markdown": action_recorder(path, machine, transcription=False).read_transcript(path)}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
     return await asyncio.to_thread(_read)
 
 
@@ -744,7 +768,13 @@ async def post_transcribe(body: dict) -> dict:
         return {"ok": False, "error": "file is required"}
 
     def _force():
-        rec = action_recorder(path, body.get("machine", ""))
+        try:
+            rec = action_recorder(path, body.get("machine", ""), transcription=False)
+            validation = rec.validate_recording(path)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        if not validation["ok"]:
+            return validation
         key = (rec.host or "local", path)
         with _TRANSCRIPTION_LOCK:
             job = {"file": path, "state": "running", "ok": None}

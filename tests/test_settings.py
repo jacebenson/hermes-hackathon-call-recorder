@@ -126,6 +126,33 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(cfg["live_script"], "")
         self.assertEqual(cfg["auto_stop_seconds"], 0, "stop off must disable the countdown")
 
+    def test_active_profile_config_without_home_override(self):
+        root = self.home / '.hermes'
+        profile = root / 'profiles' / 'work'
+        profile.mkdir(parents=True)
+        values = {'plugins': {'entries': {'call-recorder': {'settings': {'host': 'profile-host'}}}}}
+        (profile / 'config.yaml').write_text(json.dumps(values))
+        for env in ({'HERMES_PROFILE': 'work'}, {'HERMES_PROFILE_NAME': 'work'}, {}):
+            with self.subTest(env=env), patch.dict(os.environ, env, clear=True), \
+                 patch.object(plugin_api.Path, 'home', return_value=self.home):
+                if not env:
+                    (root / 'active_profile').write_text('work\n')
+                self.assertEqual(plugin_api.manifest_settings(), {'host': 'profile-host'})
+
+    def test_home_override_wins_over_active_profile(self):
+        self._write_manifest_settings({'host': 'explicit-home'})
+        with patch.dict(os.environ, {'HERMES_PROFILE': 'work'}):
+            self.assertEqual(plugin_api.manifest_settings(), {'host': 'explicit-home'})
+
+    def test_default_home_without_profile(self):
+        root = self.home / '.hermes'
+        root.mkdir()
+        (root / 'config.yaml').write_text(json.dumps({'plugins': {'entries': {'call-recorder': {'settings': {'host': 'default-host'}}}}}))
+        for profile in ('', 'default'):
+            with self.subTest(profile=profile), patch.dict(os.environ, {'HERMES_PROFILE': profile}, clear=True), \
+                 patch.object(plugin_api.Path, 'home', return_value=self.home):
+                self.assertEqual(plugin_api.manifest_settings(), {'host': 'default-host'})
+
     def test_unreadable_config_is_not_fatal(self):
         (self.home / "config.yaml").write_text("plugins: [this is not a mapping\n")
         self.assertEqual(plugin_api.settings()["recordings_dir"], "~/recordings")
