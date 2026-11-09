@@ -8,6 +8,13 @@ import shlex
 import socket
 import subprocess
 import threading
+import tempfile
+import shutil
+import uuid
+from datetime import datetime, timezone
+
+MAX_BROWSER_BYTES = 32 * 1024 * 1024
+BROWSER_MIMES = {'audio/webm', 'audio/ogg', 'audio/mp4'}
 from pathlib import Path
 from urllib.parse import quote
 
@@ -40,6 +47,61 @@ class RecordingLibrary:
         staging = receipt.with_suffix('.tmp')
         staging.write_text(json.dumps(entry, indent=2), encoding='utf-8')
         staging.replace(receipt)
+
+    def store_browser(self, data: bytes, mime: str) -> dict:
+        """Decode a bounded audio-only upload into one mono track; never trust its name."""
+        if not data or len(data) > MAX_BROWSER_BYTES:
+            return {'ok': False, 'error': 'Audio must be between 1 byte and 32 MiB.'}
+        if mime.split(';', 1)[0].lower() not in BROWSER_MIMES:
+            return {'ok': False, 'error': 'Use WebM, Ogg or MP4 microphone audio.'}
+        demuxer = {'audio/webm': 'matroska', 'audio/ogg': 'ogg', 'audio/mp4': 'mov'}[mime.split(';', 1)[0].lower()]
+        directory = self.root / ('browser-' + uuid.uuid4().hex)
+        try:
+            self.root.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(prefix='.browser-', dir=self.root) as work:
+                source = Path(work) / 'input'
+                source.write_bytes(data)
+                probe = subprocess.run(['ffprobe', '-v', 'error', '-protocol_whitelist', 'file,pipe',
+                                        '-f', demuxer, '-show_streams', '-of', 'json',
+                                        str(source)], capture_output=True, timeout=20, check=True)
+                streams = json.loads(probe.stdout)['streams']
+                if len(streams) != 1 or streams[0].get('codec_type') != 'audio':
+                    raise ValueError('Expected one audio stream.')
+                name = datetime.now(timezone.utc).strftime('call-%Y%m%d-%H%M%S.mkv')
+                output = Path(work) / name
+                decoded = subprocess.run(['ffmpeg', '-nostdin', '-v', 'warning', '-xerror',
+                                '-protocol_whitelist', 'file,pipe', '-f', demuxer, '-i', str(source),
+                                '-map', '0:a:0', '-vn', '-ac', '1', '-ar', '48000',
+                                '-t', '7201', '-c:a', 'libopus', '-b:a', '64k',
+                                '-metadata:s:a:0', 'title=microphone', str(output)],
+                               capture_output=True, timeout=120, check=True)
+                # FFmpeg may return zero after recovering only the first clusters.
+                # Do not confuse its known EOF Opus-header parser warning with
+                # demuxer evidence that the input itself ended prematurely.
+                diagnostics = (probe.stderr + decoded.stderr).decode(errors='replace').lower()
+                if re.search(r'ended prematurely|truncat|corrupt|invalid data|'
+                             r'error (?:reading|during demuxing)|resync failed|'
+                             r'extends beyond end|exceeds containing', diagnostics):
+                    raise ValueError('Incomplete or corrupt microphone audio.')
+                duration = Recorder().duration(str(output))
+                if duration is None or not 0 < duration <= 7200:
+                    raise ValueError('Duration must be at most two hours.')
+                directory.mkdir(mode=0o700)
+                target = directory / name
+                output.replace(target)
+                target.chmod(0o600)
+                entry = {'machine': 'browser', 'host': None, 'source': str(target),
+                         'file': str(target), 'recordings_dir': str(directory), 'os_name': 'linux',
+                         'ready': True, 'completed': ['.mkv'], 'error': '',
+                         'origin': 'browser', 'capture_mode': 'browser',
+                         'tracks': ['microphone'], 'speaker_separated': False}
+                self._save(target.with_suffix('.library.json'), entry)
+                return {'ok': True, 'file': str(target), 'stored': True,
+                        'duration': duration, 'capture_mode': 'browser', 'tracks': ['microphone'],
+                        'speaker_separated': False, 'live': False}
+        except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+            shutil.rmtree(directory, ignore_errors=True)
+            return {'ok': False, 'error': 'Could not decode microphone audio. Backend needs ffmpeg and ffprobe; use a supported audio format, maximum two hours.'}
 
     def store(self, rec, source: str) -> dict:
         """Pull completed output over the existing SSH transport. Never remove source."""
@@ -150,6 +212,10 @@ class RecordingLibrary:
                 'duration': local.duration(str(path)),
                 'transcript': str(transcript) if transcript.is_file() else None,
                 'upload_error': '',
+                'origin': entry.get('origin', entry['machine']),
+                'capture_mode': entry.get('capture_mode', 'computer'),
+                'tracks': entry.get('tracks', ['system', 'microphone']),
+                'speaker_separated': entry.get('speaker_separated', True),
             }
         machine = selected.host or socket.gethostname()
         errors = {(e['machine'], e['source']): e.get('error', '') for _, e in entries}

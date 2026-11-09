@@ -68,7 +68,8 @@ def main() -> int:
     model = WhisperModel(MODEL_ID, device=DEVICE, compute_type=COMPUTE)
     rows: list[tuple[float, str, str]] = []
 
-    for index, who in ((0, "them"), (1, "you")):
+    tracks = ((0, "voice mix"),) if os.environ.get('CALLREC_SINGLE_TRACK') == '1' else ((0, "them"), (1, "you"))
+    for index, who in tracks:
         raw = track_to_raw(src, index, work / f"track{index}.s16")
         data = np.memmap(raw, dtype=np.int16, mode="r")
         step = int(CHUNK * 16000)
