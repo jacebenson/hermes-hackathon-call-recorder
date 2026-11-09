@@ -34,4 +34,25 @@ class Broken extends Recorder {start(){throw Error('device failed')}}
 capture=make(ctx,{...env,MediaRecorder:Broken}); await capture.start(); assert.equal(capture.get().phase,'error'); assert.equal(stopped,3)
 // Upload errors never retry against another gateway or restart the microphone.
 capture=make({rest:async()=>{throw Error('offline')}},env); await capture.start(); await capture.stop(); assert.equal(stopped,4); assert.equal(capture.get().phase,'error')
+// A dispatched upload cannot be cancelled. Its receipt/failure remains observable.
+for (const outcome of ['saved', 'error']) {
+ let complete, reject, destination='original', destinations=[], notices=[], states=[]
+ capture=make({notify:n=>notices.push(n),rest:()=>{destinations.push(destination);return new Promise((r,j)=>{complete=r;reject=j})}},env)
+ capture.subscribe(s=>states.push(s))
+ await capture.start(); const done=capture.stop()
+ await new Promise(r=>setTimeout(r,0))
+ assert.equal(capture.get().phase,'uploading')
+ destination='new-profile'; capture.cancel(); capture.cancel()
+ assert.equal(capture.get().phase,'uploading', 'dispatched upload must remain pending after a source change')
+ assert(capture.get().message.includes('original backend'))
+ await capture.start(); assert.equal(destinations.length,1)
+ if(outcome==='saved') complete({ok:true,file:'original-receipt.mkv'}); else reject(Error('original offline'))
+ await done
+ assert.equal(capture.get().phase,outcome)
+ if(outcome==='saved') assert.equal(capture.get().result.file,'original-receipt.mkv')
+ else assert(capture.get().error.includes('original offline'))
+ assert.deepEqual(destinations,['original'])
+ assert(!states.some(s=>s.message.includes('not uploaded')), 'dispatched failure must never publish a false non-persistence claim')
+ assert(notices.some(n=>n.message.includes('original backend')))
+}
 console.log('Browser capture lifecycle checks passed')

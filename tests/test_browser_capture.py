@@ -34,6 +34,33 @@ class BrowserCaptureTests(unittest.TestCase):
         self.assertEqual(json.loads((self.root / 'settings.json').read_text())['custom'], 7)
         self.assertFalse(asyncio.run(api.post_capture_mode({'capture_mode': 'elsewhere'}))['ok'])
 
+    def test_active_native_rejects_source_change_and_stale_browser_status_is_honest(self):
+        (self.root / 'settings.json').write_text('{"host":"native","capture_mode":"computer"}')
+        with patch.object(api.Recorder, 'status', return_value={'recording': True, 'live': True}) as status:
+            result = asyncio.run(api.post_capture_mode({'capture_mode': 'browser'}))
+            self.assertFalse(result['ok'])
+            self.assertEqual(api.settings()['capture_mode'], 'computer')
+            self.assertTrue(status.called)
+            (self.root / 'settings.json').write_text('{"host":"native","capture_mode":"browser"}')
+            self.assertTrue(api._status_payload()['recording'])
+
+    def test_stale_browser_choice_does_not_skip_active_native_watcher(self):
+        native = Mock()
+        native.status.return_value = {'recording': True}
+        native.tick.return_value = {'action': 'recording'}
+        with patch.object(api, '_native_status_recorder', return_value=native), \
+             patch.object(api.time, 'sleep', side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                api._watch()
+        native.tick.assert_called_once()
+
+    def test_browser_transcript_never_probes_native_or_installs_helpers(self):
+        with patch.object(api, 'detect_transcription') as detect, patch.object(api.Recorder, 'install_scripts') as install:
+            result = asyncio.run(api.get_transcript())
+            self.assertEqual(result['lines'], [])
+            detect.assert_not_called()
+            install.assert_not_called()
+
     def test_browser_whisper_needs_runtime_not_legacy_live_script(self):
         with patch.object(api, 'detect_transcription', return_value={'python': '/backend/python', 'ok': False, 'live_script': ''}):
             self.assertTrue(api.browser_transcription()['ok'])
@@ -80,6 +107,53 @@ class BrowserCaptureTests(unittest.TestCase):
         with patch('recording_library.MAX_BROWSER_BYTES', 2):
             self.assertFalse(library.store_browser(b'xxx', 'audio/webm')['ok'])
         self.assertEqual(list(library.root.glob('*/call-*.library.json')), [])
+
+    def test_truncated_webm_is_not_an_ordinary_success(self):
+        data = subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i',
+                               'sine=frequency=330:duration=2', '-c:a', 'libopus',
+                               '-f', 'webm', 'pipe:1'], capture_output=True, check=True).stdout
+        library = RecordingLibrary()
+        self.assertFalse(library.store_browser(data[:len(data)//2], 'audio/webm')['ok'])
+        self.assertEqual(list(library.root.glob('*/call-*.library.json')), [])
+        self.assertTrue(library.store_browser(data, 'audio/webm')['ok'])
+
+    def test_known_opus_eof_parser_warning_does_not_reject_valid_audio(self):
+        data = self.audio()
+        real_run = subprocess.run
+        def run(*args, **kwargs):
+            result = real_run(*args, **kwargs)
+            if args[0][0] == 'ffmpeg':
+                result.stderr += b'[opus] Error parsing Opus packet header.\n'
+            return result
+        with patch('recording_library.subprocess.run', side_effect=run):
+            self.assertTrue(RecordingLibrary().store_browser(data, 'audio/webm')['ok'])
+
+    def test_native_start_and_source_write_are_serialized(self):
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        (self.root / 'settings.json').write_text('{"host":"native","capture_mode":"computer"}')
+        entered, finish, switching = threading.Event(), threading.Event(), threading.Event()
+        active = {'recording': False}
+        def start(**kwargs):
+            entered.set()
+            self.assertTrue(finish.wait(2))
+            active['recording'] = True
+            return {'ok': True}
+        native = Mock()
+        native.start.side_effect = start
+        def switch():
+            switching.set()
+            return asyncio.run(api.post_capture_mode({'capture_mode': 'browser'}))
+        with patch.object(api, 'recorder', return_value=native), patch.object(api, 'ensure_watcher'), \
+             patch.object(api.Recorder, 'status', side_effect=lambda: dict(active)), ThreadPoolExecutor(2) as pool:
+            started = pool.submit(lambda: asyncio.run(api.post_start()))
+            self.assertTrue(entered.wait(2))
+            changed = pool.submit(switch)
+            self.assertTrue(switching.wait(2))
+            finish.set()
+            self.assertTrue(started.result(timeout=3)['ok'])
+            self.assertFalse(changed.result(timeout=3)['ok'])
+        self.assertEqual(api.settings()['capture_mode'], 'computer')
 
     def test_upload_cannot_follow_playlist_paths(self):
         segment = self.root / 'private.ts'

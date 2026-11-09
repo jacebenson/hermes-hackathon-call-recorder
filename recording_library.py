@@ -69,12 +69,20 @@ class RecordingLibrary:
                     raise ValueError('Expected one audio stream.')
                 name = datetime.now(timezone.utc).strftime('call-%Y%m%d-%H%M%S.mkv')
                 output = Path(work) / name
-                subprocess.run(['ffmpeg', '-nostdin', '-v', 'error', '-xerror',
+                decoded = subprocess.run(['ffmpeg', '-nostdin', '-v', 'warning', '-xerror',
                                 '-protocol_whitelist', 'file,pipe', '-f', demuxer, '-i', str(source),
                                 '-map', '0:a:0', '-vn', '-ac', '1', '-ar', '48000',
                                 '-t', '7201', '-c:a', 'libopus', '-b:a', '64k',
                                 '-metadata:s:a:0', 'title=microphone', str(output)],
                                capture_output=True, timeout=120, check=True)
+                # FFmpeg may return zero after recovering only the first clusters.
+                # Do not confuse its known EOF Opus-header parser warning with
+                # demuxer evidence that the input itself ended prematurely.
+                diagnostics = (probe.stderr + decoded.stderr).decode(errors='replace').lower()
+                if re.search(r'ended prematurely|truncat|corrupt|invalid data|'
+                             r'error (?:reading|during demuxing)|resync failed|'
+                             r'extends beyond end|exceeds containing', diagnostics):
+                    raise ValueError('Incomplete or corrupt microphone audio.')
                 duration = Recorder().duration(str(output))
                 if duration is None or not 0 < duration <= 7200:
                     raise ValueError('Duration must be at most two hours.')

@@ -128,13 +128,30 @@ export function createBrowserCapture(ctx, env = globalThis) {
   let state = { phase: 'idle', error: '', message: '' }, generation = 0
   let stream = null, recorder = null, timer = null, chunks = [], bytes = 0, stopping = null
   const listeners = new Set()
-  const publish = (value) => { state = { ...state, ...value }; for (const fn of listeners) fn(state) }
+  let dispatched = false, detached = false, lastNotice = ''
+  const publish = (value) => {
+    state = { ...state, ...value }
+    const notice = state.error || state.message
+    if (notice && notice !== lastNotice && ['pending', 'uploading', 'saved', 'error'].includes(state.phase)) {
+      lastNotice = notice
+      ctx.notify?.({ kind: state.error ? 'error' : 'info', message: notice })
+    }
+    for (const fn of listeners) fn(state)
+  }
   const release = () => {
     env.clearTimeout(timer); timer = null
     if (stream) for (const track of stream.getTracks()) track.stop()
     stream = null
   }
-  const cancel = () => {
+  const cancel = (reason = 'Recording view closed or capture cancelled.') => {
+    release()
+    if (dispatched) {
+      detached = true
+      publish({ message: 'Upload continues to the original backend and cannot be cancelled. Keep this page open for the receipt.' })
+      return
+    }
+    if (['saved', 'error'].includes(state.phase)) return
+    const wasActive = ['pending', 'recording', 'stopping', 'uploading'].includes(state.phase)
     generation++
     if (recorder) {
       recorder.onstop = null; recorder.ondataavailable = null; recorder.onerror = null
@@ -142,11 +159,12 @@ export function createBrowserCapture(ctx, env = globalThis) {
     }
     recorder = null; release(); chunks = []; bytes = 0
     if (stopping) { stopping(); stopping = null }
-    publish({ phase: 'idle', error: '', message: '' })
+    publish({ phase: 'idle', error: '', message: wasActive && reason ? reason + ' Unfinished audio was not uploaded.' : '' })
   }
-  const fail = (error) => { cancel(); publish({ phase: 'error', error, message: '' }) }
+  const fail = (error) => { cancel(''); publish({ phase: 'error', error, message: '' }) }
   const start = async () => {
     if (['pending', 'recording', 'uploading', 'stopping'].includes(state.phase)) return
+    detached = false; lastNotice = ''
     const current = ++generation
     publish({ phase: 'pending', error: '', message: 'Waiting for microphone permission…' })
     try {
@@ -194,15 +212,19 @@ export function createBrowserCapture(ctx, env = globalThis) {
       try {
         const data = await blob.arrayBuffer()
         if (current !== generation) return
+        dispatched = true
         const result = await ctx.rest('/browser-audio', { method: 'POST',
           upload: { filename: 'microphone', contentType: blob.type, bytes: data }, timeoutMs: 180000 })
         if (current !== generation) return
         if (!result?.ok) throw Error(result?.error || 'Upload failed')
-        publish({ phase: 'saved', result, message: 'Audio saved on the backend. ' +
+        publish({ phase: 'saved', result, message: (detached ? 'Audio saved on the original backend: ' + result.file + '. ' : 'Audio saved on the backend. ') +
           (result.transcription?.state === 'available' ? 'Use Transcribe for a single voice mix.' : 'Backend Whisper unavailable; audio saved without transcript.') })
       } catch (e) {
-        if (current === generation) fail('Could not save microphone audio: ' + (e?.message || 'request failed') + '. No automatic retry or device fallback.')
-      } finally { resolveStop(); if (stopping === resolveStop) stopping = null }
+        if (current === generation) {
+          dispatched = false
+          fail('Could not confirm saving microphone audio on the original backend: ' + (e?.message || 'request failed') + '. It may have persisted if the response was lost. Check that backend before retrying. No automatic retry or device fallback.')
+        }
+      } finally { dispatched = false; resolveStop(); if (stopping === resolveStop) stopping = null }
     }
     try { finished.stop(); release() } catch { fail('Could not finish microphone recording. Nothing was uploaded.') }
     return done
@@ -301,7 +323,8 @@ function ComposerRecordButton({ ctx }) {
   return jsxs('button', {
     type: 'button',
     onClick: toggle,
-    title: !shownRecording
+    disabled: browserMode && ['pending', 'stopping', 'uploading'].includes(browser.phase),
+    title: browserMode && browser.phase !== 'idle' && browser.phase !== 'recording' ? browser.error || browser.message : !shownRecording
       ? browserMode ? 'Microphone on this device only. System audio is not recorded.' : 'Microphone and system audio on ' + (choice.data?.host_label || 'the configured computer')
       : browserMode ? 'Stop microphone recording' : micSilent
         ? 'Microphone is silent (' + silentFor + 's) - are you muted? Click to stop.'
@@ -329,7 +352,7 @@ function ComposerRecordButton({ ctx }) {
         )
       }),
       // The timer lives in the status bar; here only the state matters.
-      shownRecording ? '' : 'rec'
+      browserMode && ['pending', 'stopping', 'uploading'].includes(browser.phase) ? '…' : shownRecording ? '' : 'rec'
     ]
   })
 }
@@ -341,6 +364,7 @@ function RecordChip({ ctx }) {
   const st = status.data || {}
   useTicker(!!st.recording)
   const elapsed = elapsedNow(status)
+  if (['pending', 'stopping', 'uploading', 'error', 'saved'].includes(browser.phase)) return jsx('div', { role: browser.error ? 'alert' : 'status', title: browser.error || browser.message, children: browser.error ? 'mic error' : browser.phase === 'saved' ? 'mic saved' : browser.message })
   if (browser.phase === 'recording') return jsx('div', { children: 'REC mic ' + clock(Math.floor((Date.now() - browser.started) / 1000)) })
   if (!st.recording)
     return jsxs('div', {
@@ -456,6 +480,7 @@ function RecorderPane({ ctx }) {
     queryKey: [ID, 'live'],
     queryFn: () => ctx.rest('/transcript?lines=40', { timeoutMs: 15000 }),
     refetchInterval: liveOn ? 2500 : false,
+    enabled: liveOn,
     retry: false
   })
   const recs = useQuery({
@@ -1006,13 +1031,21 @@ export default {
   id: ID,
   name: 'Call Recorder',
   register(ctx) {
-    ctx = { ...ctx, browserCapture: createBrowserCapture(ctx) }
-    const unsubscribers = ['connectionId', 'profile', 'gateway'].map(key => host.state?.[key]?.listen(() => {
-      if (ctx.browserCapture.active()) {
-        ctx.browserCapture.cancel()
-        host.notify({ kind: 'error', message: 'Microphone recording cancelled because the backend connection changed. Unfinished audio was not uploaded.' })
-      }
-    })).filter(Boolean)
+    ctx = { ...ctx, browserCapture: createBrowserCapture({ ...ctx, notify: n => host.notify(n) }) }
+    // SDK connectionId/profile identify REST routing; gateway is socket health.
+    const unsubscribers = ['connectionId', 'profile'].map(key => {
+      const atom = host.state?.[key]
+      let previous = atom?.get()
+      return atom?.listen(value => {
+        if (value === previous) return
+        previous = value
+        if (ctx.browserCapture.active()) {
+          ctx.browserCapture.cancel('Backend connection or profile changed.')
+          const state = ctx.browserCapture.get()
+          if (state.phase === 'idle') host.notify({ kind: 'info', message: state.message })
+        }
+      })
+    }).filter(Boolean)
     ctx.onDispose?.(() => { ctx.browserCapture.cancel(); for (const off of unsubscribers) off() })
     ctx.register({
       id: 'call-recorder-composer',

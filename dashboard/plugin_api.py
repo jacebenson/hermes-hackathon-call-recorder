@@ -357,14 +357,22 @@ def _after_stop(rec, result: dict) -> dict:
     return {**result, "transcription": dict(job)}
 
 
+def _native_status_recorder():
+    # Status alone must not detect Whisper or install native helpers.
+    cfg = settings()
+    return Recorder(host=cfg['host'] or None, recordings_dir=cfg['recordings_dir'],
+                    auto_start=False, auto_stop_seconds=cfg['auto_stop_seconds'])
+
+
 def _status_payload() -> dict:
-    if settings().get("capture_mode") == "browser":
-        return {"ok": True, "recording": False, "live": False, "transcriptions": []}
-    rec = recorder()
+    with _SETTINGS_LOCK:
+        rec = _native_status_recorder() if settings().get('capture_mode') == 'browser' else recorder()
+        status = rec.status()
+    # Never hide an already-running native capture behind a stale browser choice.
     with _TRANSCRIPTION_LOCK:
         jobs = [dict(job) for (host, _), job in _TRANSCRIPTION_JOBS.items()
                 if host == (rec.host or "local")]
-    return {"ok": True, **rec.status(), "transcriptions": jobs}
+    return {"ok": True, **status, "transcriptions": jobs}
 
 
 _WATCHER_STARTED = False
@@ -375,11 +383,13 @@ def _watch() -> None:
     interval = max(3, int(settings().get("watch_seconds") or 10))
     while True:
         try:
-            if settings().get("capture_mode") == "browser":
-                time.sleep(interval)
-                continue
-            rec = recorder()
-            decision = rec.tick()
+            with _SETTINGS_LOCK:
+                if settings().get("capture_mode") == "browser":
+                    rec = _native_status_recorder()
+                    decision = rec.tick() if rec.status().get('recording') else {'action': 'idle'}
+                else:
+                    rec = recorder()
+                    decision = rec.tick()
             if decision.get("action") == "stopped":
                 decision = _after_stop(rec, decision)
             if decision.get("action") not in ("idle", "recording"):
@@ -437,7 +447,7 @@ def _config_payload() -> dict:
 
 
 RECENT_HOST_LIMIT = 5
-_SETTINGS_LOCK = threading.Lock()
+_SETTINGS_LOCK = threading.RLock()
 
 
 def validate_capture_host(value) -> str:
@@ -497,6 +507,8 @@ async def post_capture_host(body: dict) -> dict:
 
     def _save():
         with _SETTINGS_LOCK:
+            if host != settings()['host'] and _native_status_recorder().status().get('recording'):
+                return {'ok': False, 'error': 'Stop computer recording before switching audio source or machine.'}
             if os.environ.get("CALLREC_HOST"):
                 return {"ok": False, "error": "Capture machine is pinned by CALLREC_HOST. Remove it before switching machines."}
             temporary = None
@@ -539,6 +551,8 @@ async def post_capture_mode(body: dict) -> dict:
         return {'ok': False, 'error': 'Choose This browser or A computer.'}
     def save():
         with _SETTINGS_LOCK:
+            if mode != settings()['capture_mode'] and _native_status_recorder().status().get('recording'):
+                return {'ok': False, 'error': 'Stop computer recording before switching audio source or machine.'}
             if os.environ.get('CALLREC_CAPTURE_MODE'):
                 return {'ok': False, 'error': 'Capture choice is pinned by CALLREC_CAPTURE_MODE.'}
             temporary = None
@@ -608,11 +622,13 @@ async def get_status() -> dict:
 
 @router.post("/start")
 async def post_start(body: dict | None = None) -> dict:
-    if settings().get('capture_mode') == 'browser':
-        return {'ok': False, 'error': 'This browser is selected. Press Record in the browser to allow microphone access; computer capture will not be started.'}
-    ensure_watcher()
-    live = bool((body or {}).get("live"))
-    return await asyncio.to_thread(lambda: recorder().start(live=live))
+    def start():
+        with _SETTINGS_LOCK:
+            if settings().get('capture_mode') == 'browser':
+                return {'ok': False, 'error': 'This browser is selected. Press Record in the browser to allow microphone access; computer capture will not be started.'}
+            ensure_watcher()
+            return recorder().start(live=bool((body or {}).get('live')))
+    return await asyncio.to_thread(start)
 
 
 @router.post("/stop")
@@ -691,7 +707,10 @@ async def post_diagnose() -> dict:
 @router.get("/transcript")
 async def get_transcript(lines: int = 60) -> dict:
     def _tail() -> dict:
-        rows = recorder().transcript_tail(lines)
+        with _SETTINGS_LOCK:
+            if settings().get('capture_mode') == 'browser':
+                return {'ok': True, 'lines': [], 'live': False}
+            rows = recorder().transcript_tail(lines)
         return {"ok": True, "lines": rows}
     return await asyncio.to_thread(_tail)
 
