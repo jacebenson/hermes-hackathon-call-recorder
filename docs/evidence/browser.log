@@ -1,0 +1,41 @@
+PASS actual loader registered call-recorder [{"id":"call-recorder:call-recorder-pane","source":"plugin:call-recorder","title":"Call recorder"}]
+PASS one named pane only 
+PASS real SDK remote/profile identity switch during capture 
+PASS actual nonzero source levels 
+PASS atomic call contains two distinct blobs and timing 
+PASS stop releases audio and video 
+PASS blob hashes identical after reload 
+PASS both real audio players advance 
+PASS downloaded bytes equal reloaded stored Blob hashes 
+PASS mic-20261110-204750.webm audio only 
+[opus @ 0x6201a49f5d40] Error parsing Opus packet header.
+PASS mic-20261110-204750.webm decoded non-silent 
+PASS call-audio-20261110-204750.webm audio only 
+[opus @ 0x63d4c906e080] Error parsing Opus packet header.
+PASS call-audio-20261110-204750.webm decoded non-silent 
+PASS rename persisted 
+PASS metadata export names saved call and provenance 
+PASS dark 390 no horizontal overflow 
+PASS dark 390 keyboard focus 
+PASS dark 1440 no horizontal overflow 
+PASS dark 1440 keyboard focus 
+PASS light 390 no horizontal overflow 
+PASS light 390 keyboard focus 
+PASS light 1440 no horizontal overflow 
+PASS light 1440 keyboard focus 
+PASS delete cancellation preserves call 
+PASS no-audio share explicit, released video 
+PASS quota failure keeps immediate downloads 
+PASS quota is atomic no partial record 
+PASS retry saves explicit mic-only call 
+PASS permission denial visible 
+PASS denial saves nothing 
+PASS pane unmount releases granted tracks 
+PASS disable late permission return releases tracks 
+PASS disable preserves saved data 
+PASS client pagehide releases tracks 
+PASS no recorder backend requests []
+PASS confirmed delete scopes one call 
+PASS delete leaves survivor exact Blob content 
+PASS renderer no uncaught errors 
+Browser checks passed: 38

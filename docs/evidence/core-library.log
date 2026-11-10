@@ -1,0 +1,31 @@
+PASS  generated call IDs are stable-format and unique
+PASS  titles are trimmed, length-capped and defaulted
+PASS  one save writes one record holding both track Blobs and shared timing
+PASS  stored timing is a copy, not a live reference to capture state
+PASS  microphone-only capture is clearly marked and owns one track
+PASS  stopping with no audio saves nothing and writes nothing
+PASS  an inconsistent record (mic-only timing with two tracks) is refused
+PASS  a quota failure rejects the save and leaves zero records
+PASS  listing returns newest capture first
+PASS  rename changes only the title and keeps both track Blobs
+PASS  delete removes only the chosen record and leaves the other intact
+PASS  metadata export comes from the stored record and contains no Blob
+
+12/12 library checks passed
+PASS  idle state acquires no tracks and records nothing
+PASS  microphone permission refusal is reported and captures nothing
+PASS  display share without audio releases the share and refuses to start silently
+PASS  failed call-audio grant after mic keeps mic usable and blocks start
+PASS  two-input capture keeps separate recorders, audio-only call stream and timing
+PASS  stop releases microphone and shared video tracks
+PASS  double start does not create extra recorders
+PASS  ended call-audio track interrupts and preserves recorded chunks
+PASS  ended microphone track interrupts both inputs
+PASS  byte cap stops capture and preserves existing chunks
+PASS  duration cap stops capture on its own
+PASS  grants, mic-only switch and reset are locked during capture
+PASS  teardown during a pending permission stops the late stream
+PASS  recorder construction failure releases all tracks with no files
+PASS  microphone-only timing marks call audio as not captured
+
+15/15 lifecycle checks passed

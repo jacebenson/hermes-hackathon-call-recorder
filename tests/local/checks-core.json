@@ -1,0 +1,68 @@
+{
+  "suite": "recorder-core fakes",
+  "total": 15,
+  "passed": 15,
+  "failed": 0,
+  "results": [
+    {
+      "name": "idle state acquires no tracks and records nothing",
+      "ok": true
+    },
+    {
+      "name": "microphone permission refusal is reported and captures nothing",
+      "ok": true
+    },
+    {
+      "name": "display share without audio releases the share and refuses to start silently",
+      "ok": true
+    },
+    {
+      "name": "failed call-audio grant after mic keeps mic usable and blocks start",
+      "ok": true
+    },
+    {
+      "name": "two-input capture keeps separate recorders, audio-only call stream and timing",
+      "ok": true
+    },
+    {
+      "name": "stop releases microphone and shared video tracks",
+      "ok": true
+    },
+    {
+      "name": "double start does not create extra recorders",
+      "ok": true
+    },
+    {
+      "name": "ended call-audio track interrupts and preserves recorded chunks",
+      "ok": true
+    },
+    {
+      "name": "ended microphone track interrupts both inputs",
+      "ok": true
+    },
+    {
+      "name": "byte cap stops capture and preserves existing chunks",
+      "ok": true
+    },
+    {
+      "name": "duration cap stops capture on its own",
+      "ok": true
+    },
+    {
+      "name": "grants, mic-only switch and reset are locked during capture",
+      "ok": true
+    },
+    {
+      "name": "teardown during a pending permission stops the late stream",
+      "ok": true
+    },
+    {
+      "name": "recorder construction failure releases all tracks with no files",
+      "ok": true
+    },
+    {
+      "name": "microphone-only timing marks call audio as not captured",
+      "ok": true
+    }
+  ]
+}

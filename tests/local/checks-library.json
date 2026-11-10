@@ -1,0 +1,56 @@
+{
+  "suite": "library records (memory backend)",
+  "total": 12,
+  "passed": 12,
+  "failed": 0,
+  "results": [
+    {
+      "name": "generated call IDs are stable-format and unique",
+      "ok": true
+    },
+    {
+      "name": "titles are trimmed, length-capped and defaulted",
+      "ok": true
+    },
+    {
+      "name": "one save writes one record holding both track Blobs and shared timing",
+      "ok": true
+    },
+    {
+      "name": "stored timing is a copy, not a live reference to capture state",
+      "ok": true
+    },
+    {
+      "name": "microphone-only capture is clearly marked and owns one track",
+      "ok": true
+    },
+    {
+      "name": "stopping with no audio saves nothing and writes nothing",
+      "ok": true
+    },
+    {
+      "name": "an inconsistent record (mic-only timing with two tracks) is refused",
+      "ok": true
+    },
+    {
+      "name": "a quota failure rejects the save and leaves zero records",
+      "ok": true
+    },
+    {
+      "name": "listing returns newest capture first",
+      "ok": true
+    },
+    {
+      "name": "rename changes only the title and keeps both track Blobs",
+      "ok": true
+    },
+    {
+      "name": "delete removes only the chosen record and leaves the other intact",
+      "ok": true
+    },
+    {
+      "name": "metadata export comes from the stored record and contains no Blob",
+      "ok": true
+    }
+  ]
+}

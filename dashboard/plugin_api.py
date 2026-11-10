@@ -794,10 +794,7 @@ async def post_transcribe(body: dict) -> dict:
     return await asyncio.to_thread(_force)
 
 
-# The plugin is imported by the dashboard process once, at startup: this is where
-# the automation thread belongs. It is a no-op when auto start/stop is disabled.
-try:
-    ensure_watcher()
-except Exception:  # never let automation break loading the plugin
-    _log.exception("call-recorder: watcher failed to start")
-
+# v2 is client-local. Import/registration must never start legacy capture,
+# probe SSH targets, or install helpers. Explicit legacy API /start still calls
+# ensure_watcher() for an intentionally started legacy recording. Existing files
+# and APIs are retained; loading the package is inert.
