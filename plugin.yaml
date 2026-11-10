@@ -1,41 +1,8 @@
 name: call-recorder
-version: "1.5.0"
+version: "2.0.0"
 requires_hermes: ">=0.23.0"
 license: MIT
 homepage: https://github.com/jacebenson/hermes-hackathon-call-recorder
-tags: [recording, transcription, audio, meetings, whisper]
-description: Record both sides of a call (system audio + mic) and transcribe it. Ships
-  a record button in the composer, a status chip, and a pane with the live transcript,
-  the finished recordings and their transcripts.
-config_schema:
-  host:
-    type: str
-    label: 1. Recording machine (empty means this Hermes machine)
-    description: Leave it empty to record on the machine Hermes runs on. To record
-      somewhere else, name that machine and make sure Hermes can ssh to it without
-      a password. Hermes on a server with the microphone on a laptop means host is
-      the laptop, and the server needs a working SSH key to it. From the machine
-      running Hermes, run ssh <that machine> true;
-      it must return without asking for a password. Use Test in the pane for the
-      in-app connection check.
-    default: ""
-  recordings_dir:
-    type: str
-    label: 2. Save recordings to
-    description: A folder on that machine. The two-track mkv and its transcript land
-      here together; the file stays on the machine that did the recording.
-    default: "~/recordings"
-  transcribe:
-    type: bool
-    label: 3. Transcribe recordings
-    description: Needs a Python on the recording machine that can import faster-whisper.
-      The recorder looks for one, installs its own transcription scripts there, and says
-      so in the pane if it cannot find it. Off means record-only.
-    default: true
-  stop_when_call_ends:
-    type: bool
-    label: 4. Stop when the call ends
-    description: Three minutes after the call disappears the recording stops and gets
-      transcribed. Off means record until you press stop - useful if the call app
-      reports audio strangely.
-    default: true
+tags: [recording, audio, meetings, client-local]
+description: Client-local microphone and shared-call audio saved in this browser.
+  Separate audio files and timing in IndexedDB. No upload or model calls.

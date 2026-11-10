@@ -169,12 +169,9 @@ class ManifestSchemaTests(unittest.TestCase):
 
         manifest = yaml.safe_load((PLUGIN_ROOT / "plugin.yaml").read_text())
         declared = set((manifest.get("config_schema") or {}).keys())
-        self.assertTrue(declared, "plugin.yaml must declare config_schema for the settings page")
-        self.assertLessEqual(declared, set(plugin_api.DEFAULTS),
-                             "config_schema keys must exist in DEFAULTS")
-        for spec in manifest["config_schema"].values():
-            self.assertIn(spec.get("type"), {"str", "int", "bool", "float", "secret"})
-            self.assertTrue(spec.get("label"), "every field needs a human label")
+        self.assertFalse(declared, "v2 client-local UI requires no backend machine/settings form")
+        self.assertEqual(manifest["version"], "2.0.0")
+        self.assertIs(plugin_api.DEFAULTS["auto_start"], False)
 
 
 if __name__ == "__main__":

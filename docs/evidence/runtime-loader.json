@@ -1,0 +1,20 @@
+{
+  "errors": [],
+  "records": {
+    "call-recorder": {
+      "id": "call-recorder",
+      "name": "Call recorder",
+      "description": "Client-local microphone and shared-call audio, saved in this browser. No upload.",
+      "capabilities": [],
+      "kind": "disk",
+      "status": "loaded"
+    }
+  },
+  "contributions": [
+    {
+      "id": "call-recorder:call-recorder-pane",
+      "source": "plugin:call-recorder",
+      "title": "Call recorder"
+    }
+  ]
+}

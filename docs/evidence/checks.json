@@ -1,0 +1,195 @@
+{
+  "displayShare": "instrumented; native Electron and real screen-audio unverified",
+  "checks": [
+    {
+      "name": "actual loader registered call-recorder",
+      "ok": true,
+      "detail": "[{\"id\":\"call-recorder:call-recorder-pane\",\"source\":\"plugin:call-recorder\",\"title\":\"Call recorder\"}]"
+    },
+    {
+      "name": "one named pane only",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "real SDK remote/profile identity switch during capture",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "actual nonzero source levels",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "atomic call contains two distinct blobs and timing",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "stop releases audio and video",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "blob hashes identical after reload",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "both real audio players advance",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "downloaded bytes equal reloaded stored Blob hashes",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "mic-20261110-205351.webm audio only",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "mic-20261110-205351.webm decoded non-silent",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "call-audio-20261110-205351.webm audio only",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "call-audio-20261110-205351.webm decoded non-silent",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "rename persisted",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "metadata export names saved call and provenance",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "dark 390 no horizontal overflow",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "dark 390 keyboard focus",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "dark 1440 no horizontal overflow",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "dark 1440 keyboard focus",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "light 390 no horizontal overflow",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "light 390 keyboard focus",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "light 1440 no horizontal overflow",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "light 1440 keyboard focus",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "delete cancellation preserves call",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no-audio share explicit, released video",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "quota failure keeps immediate downloads",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "quota is atomic no partial record",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "retry saves explicit mic-only call",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "permission denial visible",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "denial saves nothing",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "pane unmount releases granted tracks",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "disable late permission return releases tracks",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "disable preserves saved data",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "client pagehide releases tracks",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no recorder backend requests",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "name": "confirmed delete scopes one call",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "delete leaves survivor exact Blob content",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "renderer no uncaught errors",
+      "ok": true,
+      "detail": ""
+    }
+  ]
+}

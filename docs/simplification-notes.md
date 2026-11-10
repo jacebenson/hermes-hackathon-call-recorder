@@ -1,4 +1,6 @@
-# Simplification notes
+# Legacy v1 simplification notes
+
+Historical review of the backend/old UI, not the v2 client-local release. See the root README for current behavior.
 
 Leave the capture algorithms alone. Linux/PipeWire and Windows/WASAPI have end-to-end verification; this review does not repeat it. Their session handling, graceful shutdown, upload chunking and silence padding solve real failures. A rewrite would buy little. The worthwhile changes are unused paths and small duplications, ranked below by payoff. No code changed. Line numbers refer to `cba03ef`.
 
