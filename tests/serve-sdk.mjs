@@ -17,16 +17,16 @@ const entry = join(out, 'entry.jsx')
 writeFileSync(entry, `
 import React,{useState} from 'react';import{createRoot}from'react-dom/client';
 import{ThemeProvider,useTheme}from'${src}/themes/context';
-import{loadRuntimePlugin,unloadRuntimePlugin}from'${src}/contrib/runtime-loader';
+import{loadRuntimePlugin}from'${src}/contrib/runtime-loader';
 import{registry}from'${src}/contrib/registry';
 import{useContributions}from'${src}/contrib/react/use-contributions';
-import{$pluginRecords,$pluginDecisions}from'${src}/contrib/plugins-store';
+import{$pluginRecords,$pluginDecisions,setPluginEnabled}from'${src}/contrib/plugins-store';
 import{host}from'${src}/sdk/index';
 import{$connection}from'${src}/store/session';
 import{$activeGatewayProfile}from'${src}/store/profile';
 $connection.set({mode:'remote',connectionId:'fixture-remote-a'});$activeGatewayProfile.set('fixture-profile-a');
 window.proof={errors:[]};window.addEventListener('error',e=>proof.errors.push(e.message));
-window.disposePlugin=()=>unloadRuntimePlugin('call-recorder');
+window.disposePlugin=()=>setPluginEnabled('call-recorder',false);
 window.backendSwitch=()=>{ $connection.set({mode:'remote',connectionId:'fixture-remote-b'});$activeGatewayProfile.set('fixture-profile-b');return {connection:host.state.connectionId.get(),profile:host.state.profile.get()} };
 function Slot(){return useContributions('panes').map(c=><React.Fragment key={c.id}>{c.render?.()}</React.Fragment>)}
 function App(){let theme=useTheme();let[mount,setMount]=useState(true);window.setTheme=theme.setMode;window.mountPane=setMount;return <div style={{height:'100vh',background:'var(--ui-bg-primary)',color:'var(--ui-text-primary)'}}><SlotWrap mount={mount}/></div>}

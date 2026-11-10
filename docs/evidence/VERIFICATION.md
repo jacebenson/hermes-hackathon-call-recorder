@@ -32,7 +32,7 @@ The SDK's real connection/profile atoms start at fixture remote A, switch to rem
 - Rename and metadata export, scoped two-step delete/cancel, survivor bytes unchanged.
 - No-audio share releases video and requires explicit mic-only selection; permission denial saves nothing.
 - Forced QuotaExceededError leaves no partial record, preserves immediate exports and succeeds on explicit Retry save.
-- Active two-input pane unmount and pagehide release all acquired tracks. Plugin unload during a late real-microphone permission return releases the late stream. Saved calls survive all teardown paths.
+- Active two-input pane unmount and pagehide release all acquired tracks. Host `setPluginEnabled(false)` during a late real-microphone permission return releases the late stream. Saved calls survive all teardown paths.
 - Actual nonzero source levels; no recorder backend requests; narrow/large keyboard focus and no horizontal overflow.
 
 ## Screenshots inspected
