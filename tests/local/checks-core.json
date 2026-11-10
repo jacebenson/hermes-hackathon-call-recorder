@@ -1,7 +1,7 @@
 {
   "suite": "recorder-core fakes",
-  "total": 15,
-  "passed": 15,
+  "total": 18,
+  "passed": 18,
   "failed": 0,
   "results": [
     {
@@ -62,6 +62,18 @@
     },
     {
       "name": "microphone-only timing marks call audio as not captured",
+      "ok": true
+    },
+    {
+      "name": "Stop plus teardown drains both delayed encoders and repeated stop joins completion",
+      "ok": true
+    },
+    {
+      "name": "inactive native error retains final data until terminal stop",
+      "ok": true
+    },
+    {
+      "name": "broken encoder deadline preserves received chunks with honest incomplete error",
       "ok": true
     }
   ]

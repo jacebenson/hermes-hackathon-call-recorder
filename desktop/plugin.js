@@ -66,6 +66,8 @@ function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.
   let callChunks = [];
   let bytes = 0;
   let generation = 0;
+  let disposed = false;
+  const drains = /* @__PURE__ */ new Map();
   let sessionStartMs = 0;
   let sessionStartISO = "";
   const startedAt = { mic: 0, call: 0 };
@@ -126,7 +128,7 @@ function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.
   };
   const guarded = (patch) => publish({ ...patch, saving: true });
   const grantMic = async () => {
-    if (!idlePhases.includes(state.phase)) return false;
+    if (disposed || !idlePhases.includes(state.phase)) return false;
     if (!env.isSecureContext) {
       publish({ phase: "error", error: "Microphone access needs HTTPS or localhost. Open this page on a secure origin." });
       return false;
@@ -167,7 +169,7 @@ function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.
     return true;
   };
   const grantCallAudio = async () => {
-    if (!idlePhases.includes(state.phase)) return false;
+    if (disposed || !idlePhases.includes(state.phase)) return false;
     if (!env.navigator?.mediaDevices?.getDisplayMedia) {
       publish({ phase: "error", error: "This browser does not expose getDisplayMedia. Tab or window audio capture is unavailable here." });
       return false;
@@ -214,7 +216,7 @@ function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.
     return true;
   };
   const chooseMicOnly = () => {
-    if (!idlePhases.includes(state.phase)) return false;
+    if (disposed || !idlePhases.includes(state.phase)) return false;
     if (state.mic.status !== "granted") {
       publish({ error: "Grant the microphone before choosing microphone only." });
       return false;
@@ -227,7 +229,7 @@ function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.
     return true;
   };
   const clearMicOnly = () => {
-    if (!idlePhases.includes(state.phase)) return false;
+    if (disposed || !idlePhases.includes(state.phase)) return false;
     publish({ phase: state.call.status === "granted" ? "ready" : "idle", micOnly: false, message: "Microphone-only choice cleared. Call audio is still not granted." });
     return true;
   };
@@ -237,7 +239,7 @@ function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.
     return MIME_CANDIDATES.find((type) => MR.isTypeSupported(type)) || "";
   };
   const start = async () => {
-    if (state.phase !== "ready") return false;
+    if (disposed || state.phase !== "ready") return false;
     if (!state.mic.live) {
       publish({ phase: "error", error: "The microphone track is not live. Grant it again." });
       return false;
@@ -282,7 +284,19 @@ function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.
       if (current !== generation) return;
       interrupt("recorder-error", message);
     };
+    drains.clear();
     const wire = (recorder, key) => {
+      let resolve;
+      const drain = { stopped: false, promise: new Promise((r) => {
+        resolve = r;
+      }) };
+      drains.set(recorder, drain);
+      recorder.onstop = () => {
+        if (drain.stopped) return;
+        drain.stopped = true;
+        stoppedAt[key] = now() - sessionStartMs;
+        resolve();
+      };
       recorder.ondataavailable = (event) => {
         if (current !== generation) return;
         const data = event.data;
@@ -404,45 +418,33 @@ function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.
     const mics = micRecorder;
     const calls = callRecorder;
     publish({ phase: "stopping", saving: true, message: reason === "user" ? "Stopping both inputs\u2026" : state.message });
-    await new Promise((resolve) => {
-      let pending = 0;
-      const timeout = env.setTimeout(() => resolve(), 5e3);
-      const done = () => {
-        pending -= 1;
-        if (pending <= 0) {
-          env.clearTimeout(timeout);
-          resolve();
-        }
-        ;
-      };
-      const waitOn = (recorder, key) => {
-        if (!recorder) return;
-        if (recorder.state === "inactive") {
-          stoppedAt[key] = now() - sessionStartMs;
-          return;
-        }
-        pending += 1;
-        recorder.onstop = () => {
-          stoppedAt[key] = now() - sessionStartMs;
-          done();
-        };
+    clearTimer();
+    detachEnded();
+    const recorders = [mics, calls].filter(Boolean);
+    for (const recorder of recorders) {
+      if (recorder.state !== "inactive") {
         try {
           recorder.stop();
         } catch {
-          done();
         }
-      };
-      waitOn(mics, "mic");
-      waitOn(calls, "call");
-      if (!pending) {
-        env.clearTimeout(timeout);
-        resolve();
       }
-    });
-    clearTimer();
-    detachEnded();
+    }
     stopTracks(micStream);
     stopTracks(callStream);
+    let timeout;
+    const complete = await Promise.race([
+      Promise.all(recorders.map((r) => drains.get(r).promise)).then(() => true),
+      new Promise((resolve) => {
+        timeout = env.setTimeout(() => resolve(false), 5e3);
+      })
+    ]);
+    env.clearTimeout(timeout);
+    for (const recorder of recorders) {
+      recorder.onstop = null;
+      recorder.ondataavailable = null;
+      recorder.onerror = null;
+    }
+    if (!complete) publish({ interrupted: state.interrupted || "drain-timeout", message: "Encoder did not finish within 5 seconds. Received audio is kept, but final audio may be incomplete." });
     micStream = null;
     callStream = null;
     micRecorder = null;
@@ -486,6 +488,7 @@ function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.
         chunks: f.chunks
       })),
       stopReason: reason,
+      finalizationComplete: complete,
       interruption: state.interrupted || null,
       videoPersisted: false,
       durationNote: "MediaRecorder WebM output has no duration header. containerDurationMs is measured by decoding in this page; some players will show an unknown length.",
@@ -517,16 +520,18 @@ function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.
       totalBytes,
       elapsedMs: now() - sessionStartMs,
       message: files.length === 0 ? "Stopped with no audio data. Nothing to download." : `${interruptedMessage}${files.length} separate audio file${files.length === 1 ? "" : "s"} ready below, plus timing metadata.${state.micOnly ? " Microphone only." : ""}${capNote} Nothing left this page.`,
-      error: files.length === 0 ? "No audio chunks were produced. Try a longer recording or check the input device." : ""
+      error: files.length === 0 ? "No audio chunks were produced. Try a longer recording or check the input device." : !complete ? "Encoder finalization timed out. Exportable audio may be incomplete." : ""
     });
   };
   const stop = async (reason = "user") => {
-    if (state.phase !== "recording") return false;
     if (stopping) return stopping;
-    stopping = finish(reason);
-    await stopping;
-    stopping = null;
-    return true;
+    if (state.phase !== "recording") return false;
+    stopping = finish(reason).then(() => true);
+    try {
+      return await stopping;
+    } finally {
+      stopping = null;
+    }
   };
   const interrupt = (kind, message) => {
     if (!["starting", "recording"].includes(state.phase)) return;
@@ -557,27 +562,13 @@ function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.
     return true;
   };
   const teardown = () => {
+    disposed = true;
+    if (state.phase === "recording") return stop("disposal");
+    if (stopping) return stopping;
+    if (capturePhases.includes(state.phase)) return Promise.resolve();
     generation++;
-    clearTimer();
-    detachEnded();
-    for (const recorder of [micRecorder, callRecorder]) {
-      if (!recorder) continue;
-      recorder.onstop = null;
-      recorder.ondataavailable = null;
-      recorder.onerror = null;
-      if (recorder.state !== "inactive") {
-        try {
-          recorder.stop();
-        } catch {
-        }
-      }
-    }
-    micRecorder = null;
-    callRecorder = null;
-    stopTracks(micStream);
-    stopTracks(callStream);
-    micStream = null;
-    callStream = null;
+    releaseAll("");
+    return Promise.resolve();
   };
   const setLevel = (key, level) => {
     if (state[key].level === level) return;
@@ -845,7 +836,7 @@ function createController(env = window) {
     } };
   }
   const library = createLibrary({ backend, origin: env.location.origin });
-  let disposed = false, lastSession = "", saving = null;
+  let disposed = false, lastSession = "", saving = null, disposal = null;
   const ui = { calls: [], error: "", saveState: "none", saveError: "", pending: null, ready: false };
   const emit = () => {
     if (!disposed) for (const fn of listeners) fn();
@@ -881,7 +872,7 @@ function createController(env = window) {
   };
   const unsubscribe = core.subscribe((state) => {
     emit();
-    if (disposed || !["done", "partial"].includes(state.phase) || !state.files.some((f) => f.key === "mic")) return;
+    if (!["done", "partial"].includes(state.phase) || !state.files.some((f) => f.key === "mic")) return;
     if (lastSession === state.startedAtISO) return;
     lastSession = state.startedAtISO;
     void save({ files: [...state.files], timing: state.timing, startedAtISO: state.startedAtISO });
@@ -893,14 +884,22 @@ function createController(env = window) {
     emit();
   });
   const dispose = () => {
-    if (disposed) return;
+    if (disposed) return disposal;
     disposed = true;
-    unsubscribe();
-    core.teardown();
-    for (const file of core.state.files) if (file.url) env.URL.revokeObjectURL(file.url);
+    const drain = core.teardown();
     for (const cleanup of [...cleanups]) cleanup();
     listeners.clear();
-    void Promise.resolve(saving).finally(() => backend.close());
+    disposal = (async () => {
+      try {
+        await drain;
+        await saving;
+      } finally {
+        unsubscribe();
+        for (const file of core.state.files) if (file.url) env.URL.revokeObjectURL(file.url);
+        backend.close();
+      }
+    })();
+    return disposal;
   };
   return {
     core,

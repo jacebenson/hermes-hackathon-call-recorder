@@ -330,6 +330,50 @@ const run = async () => {
     assert.equal(c15.state.files.filter((f) => f.key !== 'timing').length, 1)
   })
 
+  await checkAsync('Stop plus teardown drains both delayed encoders and repeated stop joins completion', async () => {
+    class Delayed extends FakeRecorder {
+      stop() { if (this.state === 'inactive') return; this.state = 'inactive'; setTimeout(() => { this.emit(321); this.onstop?.() }, this === FakeRecorder.instances[0] ? 5 : 25) }
+    }
+    const c = build(baseEnv({ MediaRecorder: Delayed }))
+    await c.grantMic(); await c.grantCallAudio(); await c.start()
+    const tracks = [...c.streams().micStream.getTracks(), ...c.streams().callStream.getTracks()]
+    const first = c.stop(), repeated = c.stop(), disposal = c.teardown()
+    assert(tracks.every(t => t.stopped), 'privacy release must not wait for final chunks')
+    assert.equal(c.state.files.length, 0)
+    assert.deepEqual(await Promise.all([first, repeated, disposal]), [true, true, true])
+    assert.deepEqual(c.state.files.filter(f => f.key !== 'timing').map(f => f.bytes), [321, 321])
+    assert.equal(await c.grantMic(), false, 'disposed controllers cannot reacquire')
+  })
+
+  await checkAsync('inactive native error retains final data until terminal stop', async () => {
+    const c = build(baseEnv())
+    await c.grantMic(); c.chooseMicOnly(); await c.start()
+    const r = FakeRecorder.instances[0]
+    r.emit(17); r.state = 'inactive'; r.onerror({ error: new Error('encoder failed') })
+    await sleep(2)
+    assert.equal(c.state.phase, 'stopping')
+    r.emit(31); r.onstop()
+    await c.stop()
+    assert.equal(c.state.files.find(f => f.key === 'mic').bytes, 48)
+    assert.equal(c.state.phase, 'partial')
+    assert.equal(c.state.timing.finalizationComplete, true)
+  })
+
+  await checkAsync('broken encoder deadline preserves received chunks with honest incomplete error', async () => {
+    class Hung extends FakeRecorder { stop() { this.state = 'inactive' } }
+    const c = build(baseEnv({ MediaRecorder: Hung, setTimeout: (fn, ms) => setTimeout(fn, ms === 5000 ? 20 : ms) }))
+    await c.grantMic(); c.chooseMicOnly(); await c.start()
+    const r = FakeRecorder.instances[0]; r.emit(23)
+    const pending = c.stop()
+    assert(r.stream.getTracks().every(t => t.stopped))
+    await pending
+    assert.equal(c.state.phase, 'partial')
+    assert.equal(c.state.files.find(f => f.key === 'mic').bytes, 23)
+    assert.equal(c.state.timing.finalizationComplete, false)
+    assert.match(c.state.error, /timed out.*incomplete/)
+    assert.equal(r.ondataavailable, null)
+  })
+
   const failed = results.filter((r) => !r.ok)
   const summary = { suite: 'recorder-core fakes', total: results.length, passed: results.length - failed.length, failed: failed.length, results }
   writeFileSync(new URL('./checks-core.json', import.meta.url), JSON.stringify(summary, null, 2))

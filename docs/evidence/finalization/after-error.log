@@ -1,0 +1,31 @@
+{
+  "savedTracks": [
+    {
+      "key": "mic",
+      "bytes": 11113
+    }
+  ],
+  "events": [
+    {
+      "event": "data",
+      "bytes": 5266,
+      "state": "recording"
+    },
+    {
+      "event": "error",
+      "name": "InvalidModificationError",
+      "state": "inactive"
+    },
+    {
+      "event": "data",
+      "bytes": 5847,
+      "state": "inactive"
+    },
+    {
+      "event": "stop",
+      "state": "inactive"
+    }
+  ],
+  "allTracksEnded": true
+}
+{ emitted: 11113, stored: 11113, lost: 0 }

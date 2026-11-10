@@ -57,10 +57,21 @@ unless actually available. WebM players may show unknown/zero length initially.
 - Quota/write failure leaves no partial call record and keeps immediate audio and
   timing downloads in the mounted pane, with Retry save. Download before closing;
   unsaved in-memory audio is not durable.
-- Closing/unmounting the pane, disabling/unloading the plugin or leaving the client
-  releases microphone, shared audio/video, level-analysis contexts and object URLs.
-  Late permission responses are released too. Already saved calls are not deleted.
-  Active unsaved capture is abandoned on teardown, not silently uploaded or saved.
+- Unmounting the pane or disabling the plugin releases microphone, shared
+  audio/video and level-analysis contexts immediately. Late permission responses
+  are released too. An active recording is stopped and its received audio is
+  finalized into the local library. An already requested Stop still drains and
+  saves after the pane disappears. Object URLs are released after finalization
+  and the save attempt. Already saved calls are not deleted.
+- Finalization waits for each recorder's actual terminal stop event, including
+  final data emitted after an inactive-state encoder error. A broken encoder has
+  a 5-second drain deadline. Received chunks remain exportable, with an incomplete
+  error and `timing.finalizationComplete: false`; missing audio cannot be recovered.
+- Hard tab/window closure, navigation or browser/process destruction cannot wait
+  for asynchronous encoder events or IndexedDB. Unload releases tracks and makes
+  a best-effort save only while the page remains alive. Stop and wait for Saved
+  before leaving. If storage fails after unmount/disable, no mounted retry/export
+  UI remains and unsaved audio is not durable. Export before leaving on failure.
 - **Prototype recordings at localhost:8817 do not follow into Hermes's origin.**
   Export both audio files and metadata there **before switching**. No migration,
   auto-copy, browser-profile access or legacy filesystem import is performed.
@@ -115,6 +126,7 @@ python -m unittest discover -s tests
 hermes plugins validate . --json
 node tests/serve-sdk.mjs  # loopback :4197, separate terminal
 node tests/plugin.browser.mjs
+node tests/finalization.browser.mjs
 # PROOF_CHROME can select an existing Chromium binary
 # TMPDIR must be writable; tests create/discard isolated browser profiles there.
 git diff --check
@@ -127,7 +139,9 @@ is no backend. It does not load a real Hermes profile or install the plugin live
 `tests/plugin.browser.mjs` uses real MediaRecorder and IndexedDB, a Chromium fake
 microphone, and **instrumented** 300 Hz WebAudio + canvas for display-share
 provenance. It proves handling of shared audio/video, not a real OS share picker.
-Browser evidence and screenshots: [docs/evidence](docs/evidence).
+Browser evidence and screenshots: [docs/evidence](docs/evidence). The follow-up
+[finalization report](docs/finalization-verification.md) records before/after
+failures, byte-exact terminal-chunk checks and hard-unload limits.
 
 The replaced v1 UI assertions concerned upload, remote-machine selection and live
 transcripts that are intentionally absent now. Backend security/path-confinement

@@ -82,6 +82,8 @@ export function createCallRecorder({ env, limits = LIMITS, now = () => env.perfo
   let callChunks = []
   let bytes = 0
   let generation = 0
+  let disposed = false
+  const drains = new Map()
   let sessionStartMs = 0
   let sessionStartISO = ''
   const startedAt = { mic: 0, call: 0 }
@@ -138,7 +140,7 @@ export function createCallRecorder({ env, limits = LIMITS, now = () => env.perfo
 
   // ----- grant: microphone -------------------------------------------------
   const grantMic = async () => {
-    if (!idlePhases.includes(state.phase)) return false
+    if (disposed || !idlePhases.includes(state.phase)) return false
     if (!env.isSecureContext) {
       publish({ phase: 'error', error: 'Microphone access needs HTTPS or localhost. Open this page on a secure origin.' })
       return false
@@ -178,7 +180,7 @@ export function createCallRecorder({ env, limits = LIMITS, now = () => env.perfo
 
   // ----- grant: call audio via getDisplayMedia ------------------------------
   const grantCallAudio = async () => {
-    if (!idlePhases.includes(state.phase)) return false
+    if (disposed || !idlePhases.includes(state.phase)) return false
     if (!env.navigator?.mediaDevices?.getDisplayMedia) {
       publish({ phase: 'error', error: 'This browser does not expose getDisplayMedia. Tab or window audio capture is unavailable here.' })
       return false
@@ -229,7 +231,7 @@ export function createCallRecorder({ env, limits = LIMITS, now = () => env.perfo
   }
 
   const chooseMicOnly = () => {
-    if (!idlePhases.includes(state.phase)) return false
+    if (disposed || !idlePhases.includes(state.phase)) return false
     if (state.mic.status !== 'granted') {
       publish({ error: 'Grant the microphone before choosing microphone only.' })
       return false
@@ -243,7 +245,7 @@ export function createCallRecorder({ env, limits = LIMITS, now = () => env.perfo
   }
 
   const clearMicOnly = () => {
-    if (!idlePhases.includes(state.phase)) return false
+    if (disposed || !idlePhases.includes(state.phase)) return false
     publish({ phase: state.call.status === 'granted' ? 'ready' : 'idle', micOnly: false, message: 'Microphone-only choice cleared. Call audio is still not granted.' })
     return true
   }
@@ -256,7 +258,7 @@ export function createCallRecorder({ env, limits = LIMITS, now = () => env.perfo
   }
 
   const start = async () => {
-    if (state.phase !== 'ready') return false
+    if (disposed || state.phase !== 'ready') return false
     if (!state.mic.live) { publish({ phase: 'error', error: 'The microphone track is not live. Grant it again.' }); return false }
     const wantsCall = state.call.status === 'granted' && !state.micOnly
     if (!wantsCall && !state.micOnly) {
@@ -297,7 +299,19 @@ export function createCallRecorder({ env, limits = LIMITS, now = () => env.perfo
       if (current !== generation) return
       interrupt('recorder-error', message)
     }
+    drains.clear()
     const wire = (recorder, key) => {
+      // Inactive is not terminal: native errors set it before final data/stop.
+      // Install once, before start, and retain these callbacks through disposal.
+      let resolve
+      const drain = { stopped: false, promise: new Promise(r => { resolve = r }) }
+      drains.set(recorder, drain)
+      recorder.onstop = () => {
+        if (drain.stopped) return
+        drain.stopped = true
+        stoppedAt[key] = now() - sessionStartMs
+        resolve()
+      }
       recorder.ondataavailable = (event) => {
         if (current !== generation) return
         const data = event.data
@@ -419,28 +433,28 @@ export function createCallRecorder({ env, limits = LIMITS, now = () => env.perfo
     const mics = micRecorder
     const calls = callRecorder
     publish({ phase: 'stopping', saving: true, message: reason === 'user' ? 'Stopping both inputs…' : state.message })
-    await new Promise((resolve) => {
-      let pending = 0
-      const timeout = env.setTimeout(() => resolve(), 5000)
-      const done = () => { pending -= 1; if (pending <= 0) { env.clearTimeout(timeout); resolve() } ; }
-      const waitOn = (recorder, key) => {
-        if (!recorder) return
-        if (recorder.state === 'inactive') { stoppedAt[key] = now() - sessionStartMs; return }
-        pending += 1
-        recorder.onstop = () => { stoppedAt[key] = now() - sessionStartMs; done() }
-        try { recorder.stop() } catch { done() }
-      }
-      waitOn(mics, 'mic')
-      waitOn(calls, 'call')
-      if (!pending) { env.clearTimeout(timeout); resolve() }
-    })
     clearTimer()
-    // Release and detach before any await so nothing stays open while blobs build.
     detachEnded()
-    // Release every acquired track now, including any display video track, so
-    // nothing stays open while blobs are assembled.
+    const recorders = [mics, calls].filter(Boolean)
+    // Request all stops before releasing inputs. Privacy release is synchronous,
+    // even if an encoder is broken or takes seconds to deliver its final events.
+    for (const recorder of recorders) {
+      if (recorder.state !== 'inactive') { try { recorder.stop() } catch { /* await terminal event or deadline */ } }
+    }
     stopTracks(micStream)
     stopTracks(callStream)
+    let timeout
+    const complete = await Promise.race([
+      Promise.all(recorders.map(r => drains.get(r).promise)).then(() => true),
+      new Promise(resolve => { timeout = env.setTimeout(() => resolve(false), 5000) })
+    ])
+    env.clearTimeout(timeout)
+    // Freeze the received chunks only after stop, or after the bounded failure
+    // deadline. A broken encoder's later events cannot mutate exported files.
+    for (const recorder of recorders) {
+      recorder.onstop = null; recorder.ondataavailable = null; recorder.onerror = null
+    }
+    if (!complete) publish({ interrupted: state.interrupted || 'drain-timeout', message: 'Encoder did not finish within 5 seconds. Received audio is kept, but final audio may be incomplete.' })
     micStream = null
     callStream = null
     micRecorder = null
@@ -480,6 +494,7 @@ export function createCallRecorder({ env, limits = LIMITS, now = () => env.perfo
         containerDurationMs: f.durationMs, bytes: f.bytes, chunks: f.chunks
       })),
       stopReason: reason,
+      finalizationComplete: complete,
       interruption: state.interrupted || null,
       videoPersisted: false,
       durationNote: 'MediaRecorder WebM output has no duration header. containerDurationMs is measured by decoding in this page; some players will show an unknown length.',
@@ -505,17 +520,16 @@ export function createCallRecorder({ env, limits = LIMITS, now = () => env.perfo
       message: files.length === 0
         ? 'Stopped with no audio data. Nothing to download.'
         : `${interruptedMessage}${files.length} separate audio file${files.length === 1 ? '' : 's'} ready below, plus timing metadata.${state.micOnly ? ' Microphone only.' : ''}${capNote} Nothing left this page.`,
-      error: files.length === 0 ? 'No audio chunks were produced. Try a longer recording or check the input device.' : ''
+      error: files.length === 0 ? 'No audio chunks were produced. Try a longer recording or check the input device.' : !complete ? 'Encoder finalization timed out. Exportable audio may be incomplete.' : ''
     })
   }
 
   const stop = async (reason = 'user') => {
-    if (state.phase !== 'recording') return false
     if (stopping) return stopping
-    stopping = finish(reason)
-    await stopping
-    stopping = null
-    return true
+    if (state.phase !== 'recording') return false
+    stopping = finish(reason).then(() => true)
+    try { return await stopping }
+    finally { stopping = null }
   }
 
   const interrupt = (kind, message) => {
@@ -540,18 +554,16 @@ export function createCallRecorder({ env, limits = LIMITS, now = () => env.perfo
     return true
   }
 
-  const teardown = () => { // beforeunload / page close
+  const teardown = () => {
+    disposed = true
+    // Cancel acquisition, not an existing recording's finalization. Late grants
+    // must still release their tracks, while captured audio must still drain.
+    if (state.phase === 'recording') return stop('disposal')
+    if (stopping) return stopping
+    if (capturePhases.includes(state.phase)) return Promise.resolve()
     generation++
-    clearTimer()
-    detachEnded()
-    for (const recorder of [micRecorder, callRecorder]) {
-      if (!recorder) continue
-      recorder.onstop = null; recorder.ondataavailable = null; recorder.onerror = null
-      if (recorder.state !== 'inactive') { try { recorder.stop() } catch { /* ignore */ } }
-    }
-    micRecorder = null; callRecorder = null
-    stopTracks(micStream); stopTracks(callStream)
-    micStream = null; callStream = null
+    releaseAll('')
+    return Promise.resolve()
   }
 
   const setLevel = (key, level) => {

@@ -1,0 +1,14 @@
+.........................them: 1 segments
+you: 1 segments
+..voice mix: 1 segments
+WROTE /home/jace/.hermes/cache/scratch/tmptlr1yu6v/call.transcript.md (1 segments)
+.......call-recorder delete: connection refused
+.......................................................................call-recorder live transcript: cannot unpack non-iterable Mock object
+.call-recorder live transcript: cannot unpack non-iterable Mock object
+call-recorder live transcript: cannot unpack non-iterable Mock object
+call-recorder archive: offline
+.....................................
+----------------------------------------------------------------------
+Ran 143 tests in 10.445s
+
+OK

@@ -1,0 +1,432 @@
+{
+  "fixture": "real MediaRecorder and IDB, fake microphone, instrumented 300Hz display audio/canvas; actual SDK runtime loader",
+  "checks": [
+    {
+      "name": "stop-disable immediately releases all acquired tracks",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "stop-disable saves exactly one call",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "stop-disable terminal chunks stored byte-exact",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "stop-disable releases all tracks and no renderer error",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "stop-unmount immediately releases all acquired tracks",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "stop-unmount saves exactly one call",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "stop-unmount terminal chunks stored byte-exact",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "stop-unmount releases all tracks and no renderer error",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "active-unmount immediately releases all acquired tracks",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "active-unmount saves exactly one call",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "active-unmount terminal chunks stored byte-exact",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "active-unmount releases all tracks and no renderer error",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "error-mic saves exactly one call",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "error-mic terminal chunks stored byte-exact",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "error-mic releases all tracks and no renderer error",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "error-mic native inactive error reproduced",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "error-dual saves exactly one call",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "error-dual terminal chunks stored byte-exact",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "error-dual releases all tracks and no renderer error",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "error-dual native inactive error reproduced",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "repeated-stop immediately releases all acquired tracks",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "repeated-stop saves exactly one call",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "repeated-stop terminal chunks stored byte-exact",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "repeated-stop releases all tracks and no renderer error",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no backend API requests",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "evidence": [
+    {
+      "mode": "stop-disable",
+      "calls": 1,
+      "allTracksEnded": true,
+      "errors": [],
+      "recorders": [
+        {
+          "events": [
+            {
+              "event": "data",
+              "bytes": 5106,
+              "state": "recording"
+            },
+            {
+              "event": "data",
+              "bytes": 5847,
+              "state": "inactive"
+            },
+            {
+              "event": "stop",
+              "state": "inactive"
+            }
+          ],
+          "emitted": 10953,
+          "stored": 10953,
+          "emittedHash": "98e4a5cfb33e56435f93509e708950fdf4a2763ed95123cc70a7480db6c11a30",
+          "storedHash": "98e4a5cfb33e56435f93509e708950fdf4a2763ed95123cc70a7480db6c11a30"
+        },
+        {
+          "events": [
+            {
+              "event": "data",
+              "bytes": 7938,
+              "state": "recording"
+            },
+            {
+              "event": "data",
+              "bytes": 5847,
+              "state": "inactive"
+            },
+            {
+              "event": "stop",
+              "state": "inactive"
+            }
+          ],
+          "emitted": 13785,
+          "stored": 13785,
+          "emittedHash": "86076ce34b63e20d9b978ad7c7b6c053ccafc3270858ceb319390f2884163163",
+          "storedHash": "86076ce34b63e20d9b978ad7c7b6c053ccafc3270858ceb319390f2884163163"
+        }
+      ]
+    },
+    {
+      "mode": "stop-unmount",
+      "calls": 1,
+      "allTracksEnded": true,
+      "errors": [],
+      "recorders": [
+        {
+          "events": [
+            {
+              "event": "data",
+              "bytes": 5738,
+              "state": "recording"
+            },
+            {
+              "event": "data",
+              "bytes": 5847,
+              "state": "inactive"
+            },
+            {
+              "event": "stop",
+              "state": "inactive"
+            }
+          ],
+          "emitted": 11585,
+          "stored": 11585,
+          "emittedHash": "0ac3c4a7e69b629e98653a38a27d623edc8c6c9a5b3f786ba18f5f41ac21d841",
+          "storedHash": "0ac3c4a7e69b629e98653a38a27d623edc8c6c9a5b3f786ba18f5f41ac21d841"
+        },
+        {
+          "events": [
+            {
+              "event": "data",
+              "bytes": 7938,
+              "state": "recording"
+            },
+            {
+              "event": "data",
+              "bytes": 5847,
+              "state": "inactive"
+            },
+            {
+              "event": "stop",
+              "state": "inactive"
+            }
+          ],
+          "emitted": 13785,
+          "stored": 13785,
+          "emittedHash": "e7059a8a4f6d4488b3ec0b1c3fdc131e80a59e50e3ed9b7025cd605ef2df81cf",
+          "storedHash": "e7059a8a4f6d4488b3ec0b1c3fdc131e80a59e50e3ed9b7025cd605ef2df81cf"
+        }
+      ]
+    },
+    {
+      "mode": "active-unmount",
+      "calls": 1,
+      "allTracksEnded": true,
+      "errors": [],
+      "recorders": [
+        {
+          "events": [
+            {
+              "event": "data",
+              "bytes": 5738,
+              "state": "recording"
+            },
+            {
+              "event": "data",
+              "bytes": 5847,
+              "state": "inactive"
+            },
+            {
+              "event": "stop",
+              "state": "inactive"
+            }
+          ],
+          "emitted": 11585,
+          "stored": 11585,
+          "emittedHash": "a285b712bfba72ce3d0a5cc0391e710e2c8e569c8037235c4d601f8df537a7e7",
+          "storedHash": "a285b712bfba72ce3d0a5cc0391e710e2c8e569c8037235c4d601f8df537a7e7"
+        },
+        {
+          "events": [
+            {
+              "event": "data",
+              "bytes": 7938,
+              "state": "recording"
+            },
+            {
+              "event": "data",
+              "bytes": 5847,
+              "state": "inactive"
+            },
+            {
+              "event": "stop",
+              "state": "inactive"
+            }
+          ],
+          "emitted": 13785,
+          "stored": 13785,
+          "emittedHash": "fc29596a7f037e710435298382aabdf6e73e13e443d5c78f1cc822d109b0a551",
+          "storedHash": "fc29596a7f037e710435298382aabdf6e73e13e443d5c78f1cc822d109b0a551"
+        }
+      ]
+    },
+    {
+      "mode": "error-mic",
+      "calls": 1,
+      "allTracksEnded": true,
+      "errors": [],
+      "recorders": [
+        {
+          "events": [
+            {
+              "event": "data",
+              "bytes": 5738,
+              "state": "recording"
+            },
+            {
+              "event": "error",
+              "name": "InvalidModificationError",
+              "state": "inactive"
+            },
+            {
+              "event": "data",
+              "bytes": 5847,
+              "state": "inactive"
+            },
+            {
+              "event": "stop",
+              "state": "inactive"
+            }
+          ],
+          "emitted": 11585,
+          "stored": 11585,
+          "emittedHash": "5bb7dd2e81bb3f6f7dcad0a24b33d91fafe3d14aa1ace4a420c89800eb43c2db",
+          "storedHash": "5bb7dd2e81bb3f6f7dcad0a24b33d91fafe3d14aa1ace4a420c89800eb43c2db"
+        }
+      ]
+    },
+    {
+      "mode": "error-dual",
+      "calls": 1,
+      "allTracksEnded": true,
+      "errors": [],
+      "recorders": [
+        {
+          "events": [
+            {
+              "event": "data",
+              "bytes": 5738,
+              "state": "recording"
+            },
+            {
+              "event": "error",
+              "name": "InvalidModificationError",
+              "state": "inactive"
+            },
+            {
+              "event": "data",
+              "bytes": 5847,
+              "state": "inactive"
+            },
+            {
+              "event": "stop",
+              "state": "inactive"
+            }
+          ],
+          "emitted": 11585,
+          "stored": 11585,
+          "emittedHash": "17c1b969b218f5da14a0612dbb113c7f8ae39313c092c57a35b127e1045b3223",
+          "storedHash": "17c1b969b218f5da14a0612dbb113c7f8ae39313c092c57a35b127e1045b3223"
+        },
+        {
+          "events": [
+            {
+              "event": "data",
+              "bytes": 7938,
+              "state": "recording"
+            },
+            {
+              "event": "data",
+              "bytes": 5847,
+              "state": "inactive"
+            },
+            {
+              "event": "stop",
+              "state": "inactive"
+            }
+          ],
+          "emitted": 13785,
+          "stored": 13785,
+          "emittedHash": "c56d2f370a764274db050f9a66916b2bf9e307641a6fb5309676212575f54c79",
+          "storedHash": "c56d2f370a764274db050f9a66916b2bf9e307641a6fb5309676212575f54c79"
+        }
+      ]
+    },
+    {
+      "mode": "repeated-stop",
+      "calls": 1,
+      "allTracksEnded": true,
+      "errors": [],
+      "recorders": [
+        {
+          "events": [
+            {
+              "event": "data",
+              "bytes": 5578,
+              "state": "recording"
+            },
+            {
+              "event": "data",
+              "bytes": 5847,
+              "state": "inactive"
+            },
+            {
+              "event": "stop",
+              "state": "inactive"
+            }
+          ],
+          "emitted": 11425,
+          "stored": 11425,
+          "emittedHash": "a61fca36f56523740ee472f1aa0d247a006e4897e63cd021dda6da8d04defd19",
+          "storedHash": "a61fca36f56523740ee472f1aa0d247a006e4897e63cd021dda6da8d04defd19"
+        },
+        {
+          "events": [
+            {
+              "event": "data",
+              "bytes": 7938,
+              "state": "recording"
+            },
+            {
+              "event": "data",
+              "bytes": 5847,
+              "state": "inactive"
+            },
+            {
+              "event": "stop",
+              "state": "inactive"
+            }
+          ],
+          "emitted": 13785,
+          "stored": 13785,
+          "emittedHash": "48fa95d7721c7a3c085d6af5913ed2fdb299a955e0f9c57febae1eea2f11d48d",
+          "storedHash": "48fa95d7721c7a3c085d6af5913ed2fdb299a955e0f9c57febae1eea2f11d48d"
+        }
+      ]
+    }
+  ]
+}
