@@ -80,15 +80,26 @@ const beforeReload=await ev('(async()=>{const rows=await readCalls();return Prom
 await ev('window.__oldDocument=true');await send('Page.reload');await until('!window.__oldDocument && !!document.querySelector("[data-recorder-pane]")');
 const afterReload=await ev('(async()=>{const rows=await readCalls();return Promise.all(rows.map(async r=>({id:r.id,status:r.status,hashes:await Promise.all(r.tracks.map(t=>hashBlob(t.blob)))})))})()');
 check('all persisted track hashes survive reload',JSON.stringify(beforeReload)===JSON.stringify(afterReload));
+// Only the next document omits graceful cleanup. Other lifecycle cases keep
+// genuine handlers. A late same-target listener cannot suppress earlier ones.
+const abandonment=await send('Page.addScriptToEvaluateOnNewDocument',{source:`
+window.abandonmentSuppressed=[];
+const add=window.addEventListener.bind(window);
+window.addEventListener=(type,fn,opts)=>{if(type==='pagehide'||type==='beforeunload'){abandonmentSuppressed.push(type);return}return add(type,fn,opts)};
+`});
+await ev('window.__oldDocument=true');await send('Page.reload');
+await until('!window.__oldDocument && !!document.querySelector("[data-recorder-pane]")');
+await send('Page.removeScriptToEvaluateOnNewDocument',{identifier:abandonment.identifier});
+await ev(`if(!['pagehide','beforeunload'].every(t=>abandonmentSuppressed.includes(t)))throw Error('Abandonment handlers were not suppressed before plugin load')`);
 await click('Grant microphone');await click('Use microphone only');await click('Record');await sleep(2400);
 const interrupted=await ev('(async()=>{const r=(await readCalls()).find(r=>r.status==="recording");return {id:r.id,bytes:r.tracks[0].bytes,hash:await hashBlob(r.tracks[0].blob)}})()');
 // Suppress graceful-unload callbacks to deterministically model an interrupted
 // document, then perform a real reload. This is not a process-crash proof.
-await ev(`for(const name of ['beforeunload','pagehide'])window.addEventListener(name,e=>e.stopImmediatePropagation(),{capture:true});window.__oldDocument=true`);
+await ev('window.__oldDocument=true');
 await send('Page.reload');await until('!window.__oldDocument && !!document.querySelector("[data-recorder-pane]")');
 await until('document.body.innerText.includes("Recovered partial")');
-const recovered=await ev(`(async()=>{const r=(await readCalls()).find(r=>r.id===${JSON.stringify(interrupted.id)});return {id:r.id,bytes:r.tracks[0].bytes,hash:await hashBlob(r.tracks[0].blob),prefixHash:await hashBlob(r.tracks[0].blob.slice(0,${interrupted.bytes}))}})()`);
-check('actual reload recovers committed chunks only, labelled partial',interrupted.bytes>0 && recovered.bytes>=interrupted.bytes && recovered.prefixHash===interrupted.hash);
+const recovered=await ev(`(async()=>{const r=(await readCalls()).find(r=>r.id===${JSON.stringify(interrupted.id)});return {id:r.id,status:r.status,active:await navigator.locks.request('call-recorder-chunks-v2:capture:'+r.id,{ifAvailable:true},lock=>!lock),bytes:r.tracks[0].bytes,hash:await hashBlob(r.tracks[0].blob),prefixHash:await hashBlob(r.tracks[0].blob.slice(0,${interrupted.bytes}))}})()`);
+check('actual reload recovers committed chunks only, labelled partial',recovered.status==='recording' && !recovered.active && interrupted.bytes>0 && recovered.bytes>=interrupted.bytes && recovered.prefixHash===interrupted.hash);
 // Real IDB API failure, not a fake Saved response. Previously committed chunks survive.
 await click('Grant microphone');await click('Use microphone only');await click('Record');await sleep(1400);
 await ev(`window.originalAdd=IDBObjectStore.prototype.add;IDBObjectStore.prototype.add=function(...args){if(this.name==='chunks')throw new DOMException('fixture quota exhausted','QuotaExceededError');return originalAdd.apply(this,args)}`);

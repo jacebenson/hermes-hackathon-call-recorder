@@ -90,12 +90,23 @@ await ev(`(()=>{const c=document.querySelector('[data-call-id="${activeId}"]');[
 await until(`!document.querySelector('[data-call-id="${activeId}"]')`);
 check('confirmed deletion after stop removes target only',await ev(`(async()=>{const rows=await readCalls();return !rows.some(r=>r.id===${JSON.stringify(activeId)})&&rows.length===1})()`));
 // Actual reload without graceful handlers abandons a persisted live session.
-await click('Release / reset inputs');await click('Grant microphone');await click('Grant call audio');await click('Record');await sleep(1400);
+// Only the next document omits graceful cleanup. Other lifecycle cases keep
+// genuine handlers. A late same-target listener cannot suppress earlier ones.
+const abandonment=await send('Page.addScriptToEvaluateOnNewDocument',{source:`
+window.abandonmentSuppressed=[];
+const add=window.addEventListener.bind(window);
+window.addEventListener=(type,fn,opts)=>{if(type==='pagehide'||type==='beforeunload'){abandonmentSuppressed.push(type);return}return add(type,fn,opts)};
+`});
+await ev('window.__oldDocument=true');await send('Page.reload');
+await until('!window.__oldDocument && !!document.querySelector("[data-recorder-pane]")');
+await send('Page.removeScriptToEvaluateOnNewDocument',{identifier:abandonment.identifier});
+await ev(`if(!['pagehide','beforeunload'].every(t=>abandonmentSuppressed.includes(t)))throw Error('Abandonment handlers were not suppressed before plugin load')`);
+await click('Grant microphone');await click('Grant call audio');await click('Record');await sleep(1400);
 const stale=await ev('(async()=>{const r=(await readCalls()).find(r=>r.status==="recording");return {id:r.id,tracks:await Promise.all(r.tracks.map(async t=>({bytes:t.bytes,hash:await hashBlob(t.blob)})))}})()');
-await ev(`for(const name of ['beforeunload','pagehide'])window.addEventListener(name,e=>e.stopImmediatePropagation(),{capture:true});window.__oldDocument=true`);
+await ev('window.__oldDocument=true');
 await send('Page.reload');await until('!window.__oldDocument && document.body.innerText.includes("Recovered partial")');
-const recovered=await ev(`(async()=>{const r=(await readCalls()).find(r=>r.id===${JSON.stringify(stale.id)});return Promise.all(r.tracks.map(async(t,i)=>hashBlob(t.blob.slice(0,${JSON.stringify(stale.tracks)}[i].bytes))))})()`);
-check('abandoned reload releases lock and recovers both committed prefixes',recovered.every((h,i)=>h===stale.tracks[i].hash));
+const recovered=await ev(`(async()=>{const r=(await readCalls()).find(r=>r.id===${JSON.stringify(stale.id)});return {status:r.status,active:await navigator.locks.request('call-recorder-chunks-v2:capture:'+r.id,{ifAvailable:true},lock=>!lock),hashes:await Promise.all(r.tracks.map(async(t,i)=>hashBlob(t.blob.slice(0,${JSON.stringify(stale.tracks)}[i].bytes))))}})()`);
+check('abandoned reload releases lock and recovers both committed prefixes',recovered.status==='recording'&&!recovered.active&&stale.tracks.length===2&&stale.tracks.every(t=>t.bytes>0)&&recovered.hashes.every((h,i)=>h===stale.tracks[i].hash));
 await ev(`(()=>{const c=document.querySelector('[data-call-id="${stale.id}"]');[...c.querySelectorAll('button')].find(b=>b.textContent==='Delete this call').click()})()`);
 await ev(`(()=>{const c=document.querySelector('[data-call-id="${stale.id}"]');[...c.querySelectorAll('button')].find(b=>b.textContent==='Delete permanently').click()})()`);
 await until(`!document.querySelector('[data-call-id="${stale.id}"]')`);
