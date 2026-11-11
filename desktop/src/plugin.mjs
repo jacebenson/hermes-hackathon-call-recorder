@@ -7,6 +7,13 @@ import { createChunkStore } from './chunk-store.mjs'
 const box = { border: '1px solid var(--ui-stroke-secondary)', borderRadius: 8, padding: 12, minWidth: 0 }
 const row = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }
 const note = { color: 'var(--ui-text-secondary)', overflowWrap: 'anywhere' }
+const SETUP_PREFERENCE = 'call-recorder.ui.v1'
+function readSetupPreference() {
+  try { const value = JSON.parse(window.localStorage.getItem(SETUP_PREFERENCE)); return value?.version === 1 && typeof value.setupExpanded === 'boolean' ? value.setupExpanded : true } catch { return true }
+}
+function saveSetupPreference(setupExpanded) {
+  try { window.localStorage.setItem(SETUP_PREFERENCE, JSON.stringify({ version: 1, setupExpanded })) } catch { /* UI-only preference; capture never depends on storage access. */ }
+}
 const fmt = ms => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`
 const action = (text, onClick, props = {}) => h(Button, { type: 'button', variant: 'secondary', size: 'touch', style: { justifySelf: 'start' }, onClick, ...props }, text)
 
@@ -96,7 +103,7 @@ function Card({ record, controller }) {
       action(busy ? 'Deleting…' : 'Delete permanently', async () => { setBusy(true); await controller.remove(record.id); setBusy(false) }, { disabled: busy }),
       action('Cancel', () => setConfirm(false), { disabled: busy })))
 }
-function InputSource({ controller, source, label, grant }) {
+function InputSource({ controller, source, label, grant, expanded }) {
   const state = controller.core.state[source]
   const [level, setLevel] = useState(-90)
   useEffect(() => {
@@ -117,13 +124,18 @@ function InputSource({ controller, source, label, grant }) {
   const locked = !['idle', 'error', 'done', 'partial'].includes(phase)
   return h('section', { style: box }, h('div', { style: row }, h('strong', null, label), h(Badge, null, state.status)),
     h('p', { style: note }, state.label || 'No input acquired on this device.'),
-    h('meter', { min: -90, max: 0, value: level, 'aria-label': `${label} level`, style: { width: '100%' } }),
-    h('small', null, `${level} dBFS · ${state.live ? 'live audio track' : 'not live'}`),
+    h('div', { hidden: !expanded },
+      h('meter', { min: -90, max: 0, value: level, 'aria-label': `${label} level`, style: { width: '100%' } }),
+      h('small', null, `${level} dBFS · ${state.live ? 'live audio track' : 'not live'}`)),
     action(`Grant ${label.toLowerCase()}`, grant, { disabled: locked || state.status === 'granted' }))
 }
 export function RecorderPane({ controller: c, onUnmount }) {
   const [, update] = useState(0)
   const [storage, setStorage] = useState('')
+  const [expanded, setExpanded] = useState(readSetupPreference)
+  const toggleSetup = () => setExpanded(value => { saveSetupPreference(!value); return !value })
+  // Presentation only. Never reset, release or recreate the capture controller.
+  useEffect(() => { if (c.core.state.phase === 'ready' && !c.core.state.error) { setExpanded(false); saveSetupPreference(false) } }, [c.core.state.phase])
   useEffect(() => { const un = c.subscribe(() => update(n => n + 1)); return () => { un(); c.dispose(); onUnmount?.() } }, [c])
   const s = c.core.state, u = c.ui
   const recording = s.phase === 'recording'
@@ -131,22 +143,27 @@ export function RecorderPane({ controller: c, onUnmount }) {
   const blocked = busy || (u.saveState === 'failed')
   return h('div', { style: { padding: 16, display: 'grid', alignContent: 'start', gap: 12, overflow: 'auto', height: '100%', color: 'var(--ui-text-primary)', fontSize: 14 }, 'data-recorder-pane': true },
     h('h2', { style: { margin: 0 } }, 'Call recorder'),
-    h('p', { style: note }, 'Capture on this client device. No backend, audio upload, transcription or model calls. Chunks commit locally throughout capture; no total duration cap.'),
-    h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 12 } },
-      h(InputSource, { controller: c, source: 'mic', label: 'Microphone', grant: () => c.core.grantMic() }),
-      h(InputSource, { controller: c, source: 'call', label: 'Call audio', grant: () => c.core.grantCallAudio() })),
-    h('small', { style: note }, 'Call audio comes only from the browser’s shared-audio track. Select Share audio in the picker. Screen video sustains sharing only; it is never recorded.'),
-    action(s.micOnly ? 'Microphone only selected' : 'Use microphone only', () => c.core.chooseMicOnly(), { disabled: blocked || !s.mic.live || s.call.status === 'granted' || s.phase === 'recording' || s.phase === 'ready' }),
-    h('div', { style: row }, action(recording ? 'Stop' : 'Record', () => recording ? c.core.stop() : c.core.start(), { disabled: recording ? false : blocked || s.phase !== 'ready' }),
+    h('p', { style: note }, 'Record on this device. Audio stays in this browser. No upload or transcription.'),
+    h('div', { style: { ...row, position: 'sticky', top: 0, zIndex: 1, background: 'var(--ui-bg-primary)', padding: '4px 0' } }, action(recording ? 'Stop' : 'Record', () => recording ? c.core.stop() : c.core.start(), { disabled: recording ? false : blocked || s.phase !== 'ready' }),
       h('output', { 'aria-label': 'Recording timer', style: { fontVariantNumeric: 'tabular-nums' } }, fmt(s.elapsedMs)),
-      action('Release / reset inputs', () => { c.core.reset(); u.saveState = 'none'; u.pending = null; update(n => n + 1) }, { disabled: busy || recording || u.saveState === 'failed' })),
+      action(expanded ? 'Collapse setup / settings' : 'Expand setup / settings', toggleSetup, { 'aria-expanded': expanded, 'aria-controls': 'call-recorder-setup' })),
     h('p', { role: s.error ? 'alert' : 'status', style: note }, s.error || s.message),
+    h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 12 } },
+      h(InputSource, { controller: c, source: 'mic', label: 'Microphone', expanded, grant: () => c.core.grantMic() }),
+      h(InputSource, { controller: c, source: 'call', label: 'Call audio', expanded, grant: () => c.core.grantCallAudio() })),
+    action(s.micOnly ? 'Microphone only selected' : 'Use microphone only', () => c.core.chooseMicOnly(), { disabled: blocked || !s.mic.live || s.call.status === 'granted' || s.phase === 'recording' || s.phase === 'ready' }),
+    h('section', { id: 'call-recorder-setup', hidden: !expanded, style: box, 'aria-label': 'Recorder setup / settings' },
+      h('p', { style: note }, 'Grant the microphone, then grant call audio or explicitly choose microphone only. Call audio requires a host-supported share picker and an audio-enabled source. In a supported browser client, select Share audio if offered. This does not capture all desktop audio. Shared video is never recorded.'),
+      h('p', { style: note }, 'Hermes Desktop uses Electron. Microphone access does not establish call-audio support. If the host reports Not supported, recorder settings cannot add the missing native sharing support.'),
+      action('Release / reset inputs', () => { c.core.reset(); u.saveState = 'none'; u.pending = null; update(n => n + 1) }, { disabled: busy || recording || u.saveState === 'failed' })),
     u.saveState !== 'none' && h('p', { role: 'status', 'data-save-state': u.saveState }, u.saveState === 'saving' ? 'Committing final chunks…' : u.saveState === 'recording' ? 'Recording; chunks committing locally.' : u.saveState === 'saved' ? 'Saved in this browser.' : `Partial, not fully saved. ${u.saveError}. Reload to inspect any remaining committed chunks.`),
     h('section', { style: box }, h('strong', null, 'This browser’s saved calls'),
+      h('p', { style: note }, 'Saved on this origin and browser profile. Download a backup.'),
+      h('details', null, h('summary', { style: { cursor: 'pointer' } }, 'Storage / export help'),
       h('p', { style: note }, 'Playback and fallback downloads assemble one selected track in memory. For long calls use Export track to file where supported, which writes one chunk at a time. Legacy v1 recordings remain untouched in their original database; export with the previous version. IndexedDB belongs to this origin and browser profile, not the connected machine or Hermes profile. It can be evicted or cleared. Download a backup. Calls from localhost:8817 do not move here: export there before switching.'),
       action('Estimate storage', async () => { try { const v = await navigator.storage.estimate(); setStorage(`Origin usage ${v.usage} / quota ${v.quota} bytes`) } catch (e) { setStorage(e.message) } }),
       action('Request persistent storage', async () => { try { setStorage(await navigator.storage.persist() ? 'Persistent storage granted; clearing site data still deletes calls.' : 'Not granted; calls remain evictable. Download a backup.') } catch (e) { setStorage(e.message) } }),
-      h('p', { role: 'status' }, storage)),
+      h('p', { role: 'status' }, storage))),
     u.error && h('p', { role: 'alert' }, u.error),
     !u.ready && h('p', null, 'Opening local library…'),
     u.ready && !u.calls.length && h('p', null, 'No calls saved in this browser yet.'),

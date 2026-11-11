@@ -44,6 +44,7 @@ function friendlyMediaError(error, input) {
       ? 'The microphone is in use or unreadable by another application.'
       : 'The shared source could not be read. Check that the call app is playing audio.'
   }
+  if (name === 'NotSupportedError' && input === 'call') return 'Call-audio sharing is not supported by this client host. In Hermes Desktop, the Electron host must provide display-media sharing; microphone permission alone does not enable it. This cannot be fixed in recorder settings. Use a supported Hermes browser client and explicitly share a source with audio, if offered, or choose Use microphone only. Browser sharing is not global desktop loopback. No microphone-only fallback was selected.'
   if (name === 'AbortError') return 'The browser aborted the capture request. Try again.'
   return `${input === 'mic' ? 'Microphone' : 'Call audio'} capture failed: ${error?.message || name || 'unknown error'}`
 }
@@ -196,7 +197,7 @@ export function createCallRecorder({ env, storage, limits = LIMITS, now = () => 
       acquired = await env.navigator.mediaDevices.getDisplayMedia({ audio: true, video: true })
     } catch (error) {
       if (current !== generation) return false
-      publish({ phase: 'error', call: { ...state.call, status: 'denied', hasAudio: false }, error: friendlyMediaError(error, 'call') })
+      publish({ phase: 'error', call: { ...state.call, status: error?.name === 'NotSupportedError' ? 'unsupported' : 'denied', hasAudio: false }, error: friendlyMediaError(error, 'call') })
       return false
     }
     if (current !== generation) { stopTracks(acquired); return false }
