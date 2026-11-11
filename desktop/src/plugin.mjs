@@ -1,8 +1,8 @@
 import { Button, Input, Badge, host } from '@hermes/plugin-sdk'
 import { createElement as h, useEffect, useState } from 'react'
 import { createCallRecorder } from './recorder-core.mjs'
-import { createLibrary, metadataFor } from './library.mjs'
-import { createIdbBackend } from './idb-backend.mjs'
+import { metadataFor } from './library.mjs'
+import { createChunkStore } from './chunk-store.mjs'
 
 const box = { border: '1px solid var(--ui-stroke-secondary)', borderRadius: 8, padding: 12, minWidth: 0 }
 const row = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }
@@ -14,60 +14,36 @@ const action = (text, onClick, props = {}) => h(Button, { type: 'button', varian
 // storage or routing input. No host network methods are used anywhere here.
 export function createController(env = window) {
   const listeners = new Set(), cleanups = new Set()
-  let backend
-  try { backend = createIdbBackend({ indexedDBImpl: env.indexedDB }) }
-  catch (error) { backend = { put: async () => { throw error }, getAll: async () => { throw error }, close() {} } }
-  const library = createLibrary({ backend, origin: env.location.origin })
-  let disposed = false, lastSession = '', saving = null, disposal = null
-  const ui = { calls: [], error: '', saveState: 'none', saveError: '', pending: null, ready: false }
+  const backend = createChunkStore({ indexedDBImpl: env.indexedDB })
+  let disposed = false, disposal
+  const ui = { calls: [], error: '', saveState: 'none', saveError: '', ready: false }
   const emit = () => { if (!disposed) for (const fn of listeners) fn() }
-  const core = createCallRecorder({ env })
-  const refresh = async () => { ui.calls = await library.list(); emit() }
-  const save = async (result = ui.pending) => {
-    if (!result || saving) return saving
-    ui.pending = result; ui.saveState = 'saving'; ui.saveError = ''; emit()
-    saving = (async () => {
-      try {
-        await library.save(result)
-        ui.saveState = 'saved'; ui.pending = null
-        await refresh().catch(error => { ui.error = `Saved, but library refresh failed: ${error.message}` })
-      } catch (error) {
-        ui.saveState = 'failed'; ui.saveError = `${error.name}: ${error.message}`
-      } finally { saving = null; emit() }
-    })()
-    return saving
+  const core = createCallRecorder({ env, storage: backend })
+  const refresh = async () => {
+    ui.calls = (await backend.list()).map(r => r.status === 'recording' ? { ...r, status: 'recovered', interrupted: 'Interrupted session. Only committed chunks recovered; encoder tail may be missing.' } : r)
+    emit()
   }
   const unsubscribe = core.subscribe(state => {
+    ui.saveState = state.phase === 'done' ? 'saved' : state.phase === 'partial' ? 'partial' : state.phase === 'recording' ? 'recording' : state.saving ? 'saving' : 'none'
+    ui.saveError = state.error
     emit()
-    if (!['done', 'partial'].includes(state.phase) || !state.files.some(f => f.key === 'mic')) return
-    if (lastSession === state.startedAtISO) return
-    lastSession = state.startedAtISO
-    void save({ files: [...state.files], timing: state.timing, startedAtISO: state.startedAtISO })
+    if (['done', 'partial', 'error'].includes(state.phase)) void refresh().catch(e => { ui.error = e.message; emit() })
   })
-  void refresh().catch(error => { ui.error = `Local library unavailable: ${error.message}. Downloads still work.` }).finally(() => { ui.ready = true; emit() })
+  void refresh().catch(e => { ui.error = `Local library unavailable: ${e.message}` }).finally(() => { ui.ready = true; emit() })
   const dispose = () => {
     if (disposed) return disposal
     disposed = true
-    const drain = core.teardown() // releases tracks synchronously, retains drain
+    const drain = core.teardown()
     for (const cleanup of [...cleanups]) cleanup()
     listeners.clear()
-    // Keep the persistence subscriber alive until terminal chunks are assembled
-    // and their atomic local save finishes, even with no mounted UI remaining.
-    disposal = (async () => {
-      try { await drain; await saving }
-      finally {
-        unsubscribe()
-        for (const file of core.state.files) if (file.url) env.URL.revokeObjectURL(file.url)
-        backend.close()
-      }
-    })()
+    disposal = Promise.resolve(drain).finally(() => { unsubscribe(); backend.close() })
     return disposal
   }
-  return { core, ui, library, backend, save, refresh, dispose,
+  return { core, ui, backend, refresh, dispose,
     onCleanup(fn) { let live = true; const cleanup = () => { if (!live) return; live = false; cleanups.delete(cleanup); fn() }; cleanups.add(cleanup); return cleanup },
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn) },
-    async rename(id, title) { try { await library.rename(id, title); await refresh() } catch (e) { ui.error = `Title not saved: ${e.message}`; emit() } },
-    async remove(id) { try { await library.remove(id); await refresh() } catch (e) { ui.error = `Delete failed: ${e.message}`; emit() } }
+    async rename(id, title) { try { await backend.update(id, { title: title.trim().slice(0, 120) || 'Untitled call' }); await refresh() } catch (e) { ui.error = e.message; emit() } },
+    async remove(id) { try { await backend.remove(id); await refresh() } catch (e) { ui.error = e.message; emit() } }
   }
 }
 
@@ -76,13 +52,22 @@ function useBlob(blob) {
   useEffect(() => { const next = URL.createObjectURL(blob); setUrl(next); return () => URL.revokeObjectURL(next) }, [blob])
   return url
 }
-function Track({ track }) {
-  const url = useBlob(track.blob)
-  return h('section', { style: { ...box, display: 'grid', gap: 8 }, 'data-track-key': track.key },
-    h('strong', null, track.label),
-    h('small', { style: note }, `${track.source} · ${track.mimeType} · ${track.bytes} bytes · start +${track.startedOffsetMs.toFixed(0)} ms · capture window ${track.captureWindowMs.toFixed(0)} ms · decoded duration ${track.containerDurationMs ?? 'not measured'}`),
-    h('audio', { controls: true, preload: 'metadata', src: url, style: { width: '100%' }, 'aria-label': `${track.label} playback` }),
-    h('a', { href: url, download: track.filename, 'data-role': `download-${track.key}`, style: { color: 'var(--ui-accent)' } }, `Download ${track.label}`))
+function Track({ track, record, controller }) {
+  const [blob, setBlob] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState(false)
+  const load = async () => { setBusy(true); try { setBlob(await controller.backend.assemble(record.id, track.key)) } catch (e) { setError(e.message) } finally { setBusy(false) } }
+  const exportFile = async () => {
+    try { const handle = await window.showSaveFilePicker({ suggestedName: track.filename }); await controller.backend.exportTo(record.id, track.key, await handle.createWritable()) }
+    catch (e) { if (e.name !== 'AbortError') setError(e.message) }
+  }
+  return h('section', { style: box, 'data-track-key': track.key },
+    h('strong', null, track.label), h('p', { style: note }, `${track.source} · ${track.bytes} bytes · ${track.chunks} committed chunks · start +${track.startedOffsetMs.toFixed(0)} ms`),
+    window.showSaveFilePicker && action('Export track to file', exportFile),
+    !blob ? action(busy ? 'Loading…' : 'Load playback / download', load, { disabled: busy }) : h(LoadedTrack, { blob, track }),
+    error && h('p', { role: 'alert' }, error))
+}
+function LoadedTrack({ blob, track }) {
+  const url = useBlob(blob)
+  return h('div', null, h('audio', { controls: true, src: url, style: { width: '100%' }, 'aria-label': `${track.label} playback` }), h('a', { href: url, download: track.filename, 'data-role': `download-${track.key}` }, `Download ${track.label}`))
 }
 function Metadata({ record }) {
   const [blob] = useState(() => new Blob([JSON.stringify(metadataFor(record), null, 2)], { type: 'application/json' }))
@@ -96,8 +81,9 @@ function Card({ record, controller }) {
     h('label', null, 'Call title', h(Input, { value: title, maxLength: 120, 'aria-label': 'Call title', onChange: e => setTitle(e.target.value) })),
     action('Save title', () => controller.rename(record.id, title)),
     h(Badge, null, record.micOnly ? 'Microphone only' : 'Microphone + call audio'),
+    h(Badge, null, record.status === 'saved' ? 'Saved' : record.status === 'recovered' ? 'Recovered partial' : 'Partial'),
     record.interrupted && h('p', null, `Interrupted: ${record.interrupted}`),
-    ...record.tracks.map(track => h(Track, { key: track.key, track })),
+    ...record.tracks.map(track => h(Track, { key: track.key, track, record, controller })),
     h('small', { style: note }, 'Separate files with shared timing offsets. No mixing, muxing or drift correction.'),
     h(Metadata, { key: record.title, record }),
     !confirm ? action('Delete this call', () => setConfirm(true)) : h('div', { style: box },
@@ -140,7 +126,7 @@ export function RecorderPane({ controller: c, onUnmount }) {
   const blocked = busy || (u.saveState === 'failed')
   return h('div', { style: { padding: 16, display: 'grid', alignContent: 'start', gap: 12, overflow: 'auto', height: '100%', color: 'var(--ui-text-primary)', fontSize: 14 }, 'data-recorder-pane': true },
     h('h2', { style: { margin: 0 } }, 'Call recorder'),
-    h('p', { style: note }, 'Capture on this client device. No backend, audio upload, transcription or model calls. 3-minute / 24 MiB cap.'),
+    h('p', { style: note }, 'Capture on this client device. No backend, audio upload, transcription or model calls. Chunks commit locally throughout capture; no total duration cap.'),
     h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 12 } },
       h(InputSource, { controller: c, source: 'mic', label: 'Microphone', grant: () => c.core.grantMic() }),
       h(InputSource, { controller: c, source: 'call', label: 'Call audio', grant: () => c.core.grantCallAudio() })),
@@ -150,11 +136,9 @@ export function RecorderPane({ controller: c, onUnmount }) {
       h('output', { 'aria-label': 'Recording timer', style: { fontVariantNumeric: 'tabular-nums' } }, fmt(s.elapsedMs)),
       action('Release / reset inputs', () => { c.core.reset(); u.saveState = 'none'; u.pending = null; update(n => n + 1) }, { disabled: busy || recording || u.saveState === 'failed' })),
     h('p', { role: s.error ? 'alert' : 'status', style: note }, s.error || s.message),
-    u.saveState !== 'none' && h('p', { role: 'status', 'data-save-state': u.saveState }, u.saveState === 'saving' ? 'Saving audio and timing atomically…' : u.saveState === 'saved' ? 'Saved in this browser.' : `Not saved. ${u.saveError}. Download before leaving; retry below.`),
-    u.saveState === 'failed' && action('Retry save', () => c.save()),
-    u.saveState === 'failed' && h('div', { style: box }, ...s.files.map(f => h('p', { key: f.key }, h('a', { href: f.url, download: f.filename }, `Download ${f.label}`)))),
+    u.saveState !== 'none' && h('p', { role: 'status', 'data-save-state': u.saveState }, u.saveState === 'saving' ? 'Committing final chunks…' : u.saveState === 'recording' ? 'Recording; chunks committing locally.' : u.saveState === 'saved' ? 'Saved in this browser.' : `Partial, not fully saved. ${u.saveError}. Committed chunks remain in the library.`),
     h('section', { style: box }, h('strong', null, 'This browser’s saved calls'),
-      h('p', { style: note }, 'IndexedDB belongs to this origin and browser profile, not the connected machine or Hermes profile. It can be evicted or cleared. Download a backup. Calls from localhost:8817 do not move here: export there before switching.'),
+      h('p', { style: note }, 'Playback and fallback downloads assemble one selected track in memory. For long calls use Export track to file where supported, which writes one chunk at a time. Legacy v1 recordings remain untouched in their original database; export with the previous version. IndexedDB belongs to this origin and browser profile, not the connected machine or Hermes profile. It can be evicted or cleared. Download a backup. Calls from localhost:8817 do not move here: export there before switching.'),
       action('Estimate storage', async () => { try { const v = await navigator.storage.estimate(); setStorage(`Origin usage ${v.usage} / quota ${v.quota} bytes`) } catch (e) { setStorage(e.message) } }),
       action('Request persistent storage', async () => { try { setStorage(await navigator.storage.persist() ? 'Persistent storage granted; clearing site data still deletes calls.' : 'Not granted; calls remain evictable. Download a backup.') } catch (e) { setStorage(e.message) } }),
       h('p', { role: 'status' }, storage)),

@@ -4,8 +4,206 @@
 import { Button, Input, Badge, host } from "@hermes/plugin-sdk";
 import { createElement as h, useEffect, useState } from "react";
 
+// desktop/src/chunk-store.mjs
+function createChunkStore({ indexedDBImpl = globalThis.indexedDB, dbName = "call-recorder-chunks-v2" } = {}) {
+  let connection;
+  const open = () => connection ||= new Promise((resolve, reject) => {
+    const r = indexedDBImpl.open(dbName, 1);
+    r.onupgradeneeded = () => {
+      r.result.createObjectStore("sessions", { keyPath: "id" });
+      r.result.createObjectStore("chunks", { keyPath: ["id", "track", "sequence"] });
+    };
+    r.onsuccess = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.onblocked = () => reject(new Error("Close other copies before opening storage."));
+  });
+  const tx = async (names, mode, run) => {
+    const db = await open();
+    return new Promise((resolve, reject) => {
+      const t = db.transaction(names, mode);
+      let value, failure;
+      const fail = (e) => {
+        failure = e;
+        try {
+          t.abort();
+        } catch {
+        }
+      };
+      t.oncomplete = () => resolve(value);
+      t.onabort = t.onerror = () => reject(failure || t.error || new Error("Local storage transaction failed"));
+      try {
+        run(t, (v) => {
+          value = v;
+        }, fail);
+      } catch (e) {
+        fail(e);
+      }
+    });
+  };
+  const get = (id) => tx(["sessions"], "readonly", (t, set) => {
+    const r = t.objectStore("sessions").get(id);
+    r.onsuccess = () => set(r.result);
+  });
+  const create = (session) => tx(["sessions"], "readwrite", (t) => t.objectStore("sessions").add(session));
+  const update = (id, patch) => tx(["sessions"], "readwrite", (t, set, fail) => {
+    const s = t.objectStore("sessions"), r = s.get(id);
+    r.onsuccess = () => {
+      try {
+        if (!r.result) throw new Error("Session is missing");
+        s.put({ ...r.result, ...patch });
+      } catch (e) {
+        fail(e);
+      }
+    };
+  });
+  const append = (id, track, sequence, blob, offsetMs, startedOffsetMs = 0) => tx(["sessions", "chunks"], "readwrite", (t, set, fail) => {
+    const s = t.objectStore("sessions"), r = s.get(id);
+    r.onsuccess = () => {
+      try {
+        const session = r.result;
+        if (!session || session.status !== "recording") {
+          t.abort();
+          return;
+        }
+        const tracks = session.tracks.map((v) => v.key === track ? { ...v, bytes: v.bytes + blob.size, chunks: v.chunks + 1, startedOffsetMs, stoppedOffsetMs: offsetMs, captureWindowMs: offsetMs - startedOffsetMs } : v);
+        t.objectStore("chunks").add({ id, track, sequence, blob, offsetMs });
+        s.put({ ...session, tracks, sessionDurationMs: offsetMs });
+      } catch (e) {
+        fail(e);
+      }
+    };
+  });
+  const list = () => tx(["sessions"], "readonly", (t, set) => {
+    const result = [], r = t.objectStore("sessions").openCursor();
+    r.onsuccess = () => {
+      const c = r.result;
+      if (!c) {
+        set(result.reverse());
+        return;
+      }
+      ;
+      result.push(c.value);
+      c.continue();
+    };
+  });
+  async function* chunks(id, track) {
+    for (let sequence = 0; ; sequence++) {
+      const value = await tx(["chunks"], "readonly", (t, set) => {
+        const r = t.objectStore("chunks").get([id, track, sequence]);
+        r.onsuccess = () => set(r.result);
+      });
+      if (!value) return;
+      yield value.blob;
+    }
+  }
+  const assemble = async (id, track) => {
+    const session = await get(id), info = session.tracks.find((t) => t.key === track);
+    const parts = [];
+    for await (const blob of chunks(id, track)) parts.push(blob);
+    return new Blob(parts, { type: info.mimeType });
+  };
+  const exportTo = async (id, track, writable) => {
+    try {
+      for await (const blob of chunks(id, track)) await writable.write(blob);
+      await writable.close();
+    } catch (e) {
+      await writable.abort?.(e);
+      throw e;
+    }
+  };
+  const remove = (id) => tx(["sessions", "chunks"], "readwrite", (t) => {
+    t.objectStore("sessions").delete(id);
+    const r = t.objectStore("chunks").openCursor(IDBKeyRange.bound([id], [id, []]));
+    r.onsuccess = () => {
+      const c = r.result;
+      if (c) {
+        c.delete();
+        c.continue();
+      }
+    };
+  });
+  return { create, append, get, update, list, chunks, assemble, exportTo, remove, close: () => {
+    connection?.then((db) => db.close());
+    connection = null;
+  } };
+}
+function createChunkWriter({ store, id, maxBytes = 8 * 1024 * 1024, maxChunks = 16, onFailure }) {
+  let tail = Promise.resolve(), pendingBytes = 0, pendingChunks = 0, failure = null;
+  const sequences = /* @__PURE__ */ new Map();
+  const fail = (error) => {
+    if (!failure) {
+      failure = error;
+      onFailure?.(error);
+    }
+  };
+  return {
+    append(track, blob, offsetMs, startedOffsetMs = 0) {
+      if (failure) return false;
+      if (pendingBytes + blob.size > maxBytes || pendingChunks >= maxChunks) {
+        fail(new Error("Pending local writes exceeded the safety buffer. Committed chunks are preserved; the remaining tail may be missing."));
+        return false;
+      }
+      const sequence = sequences.get(track) || 0;
+      sequences.set(track, sequence + 1);
+      pendingBytes += blob.size;
+      pendingChunks++;
+      tail = tail.then(async () => {
+        if (!failure) {
+          try {
+            await store.append(id, track, sequence, blob, offsetMs, startedOffsetMs);
+          } catch (e) {
+            fail(e);
+          }
+        }
+        pendingBytes -= blob.size;
+        pendingChunks--;
+      });
+      return true;
+    },
+    async drain() {
+      await tail;
+      return failure;
+    },
+    get pendingBytes() {
+      return pendingBytes;
+    },
+    get pendingChunks() {
+      return pendingChunks;
+    },
+    get error() {
+      return failure;
+    }
+  };
+}
+
+// desktop/src/library.mjs
+var RECORD_SCHEMA = "call-library-record/1";
+var pad = (n, w = 2) => String(n).padStart(w, "0");
+function newCallId(date = /* @__PURE__ */ new Date(), random = () => crypto.getRandomValues(new Uint8Array(3))) {
+  const stamp = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+  const bytes = Array.from(random());
+  return `call-${stamp}-${bytes.map((b) => b.toString(36).padStart(2, "0")).join("").slice(0, 6)}`;
+}
+function metadataFor(record) {
+  return {
+    schema: record.schema || RECORD_SCHEMA,
+    id: record.id,
+    title: record.title,
+    createdAtISO: record.createdAtISO,
+    capturedAtISO: record.capturedAtISO,
+    sessionDurationMs: record.sessionDurationMs,
+    stopReason: record.stopReason,
+    interrupted: record.interrupted,
+    micOnly: record.micOnly,
+    provenance: record.provenance,
+    tracks: record.tracks.map(({ blob, ...rest }) => rest),
+    timing: record.timing,
+    note: "Two separate audio files plus shared timing offsets. Not a muxed or synchronized two-track container."
+  };
+}
+
 // desktop/src/recorder-core.mjs
-var LIMITS = Object.freeze({ maxDurationMs: 18e4, maxBytes: 24 * 1024 * 1024 });
+var LIMITS = Object.freeze({ maxDurationMs: Infinity, maxBytes: Infinity });
 var MIME_CANDIDATES = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/mp4"];
 var idlePhases = ["idle", "error", "done", "partial"];
 var capturePhases = ["starting", "recording", "stopping", "finalizing"];
@@ -32,7 +230,7 @@ function friendlyMediaError(error, input) {
   if (name === "AbortError") return "The browser aborted the capture request. Try again.";
   return `${input === "mic" ? "Microphone" : "Call audio"} capture failed: ${error?.message || name || "unknown error"}`;
 }
-function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.now(), onState } = {}) {
+function createCallRecorder({ env, storage, limits = LIMITS, now = () => env.performance.now(), onState } = {}) {
   const state = {
     phase: "idle",
     mic: { status: "none", label: "", live: false, level: 0 },
@@ -62,8 +260,8 @@ function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.
   let callStream = null;
   let micRecorder = null;
   let callRecorder = null;
-  let micChunks = [];
-  let callChunks = [];
+  let writer = null;
+  let sessionId = null;
   let bytes = 0;
   let generation = 0;
   let disposed = false;
@@ -260,8 +458,10 @@ function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.
     }
     const current = ++generation;
     publish({ phase: "starting", error: "", files: [], timing: null, interrupted: "", totalBytes: 0, saving: false });
-    micChunks = [];
-    callChunks = [];
+    if (!storage) {
+      publish({ phase: "error", error: "Incremental local storage is required." });
+      return false;
+    }
     bytes = 0;
     chunkCount.mic = 0;
     chunkCount.call = 0;
@@ -303,17 +503,8 @@ function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.
         if (!data || !data.size) return;
         bytes += data.size;
         state.totalBytes = bytes;
-        if (bytes > limits.maxBytes) {
-          failIfCurrent(`Recording hit the ${Math.round(limits.maxBytes / 1048576)} MiB in-memory cap. Capture stopped; the audio already recorded is kept below.`);
-          return;
-        }
-        if (key === "mic") {
-          micChunks.push(data);
-          chunkCount.mic++;
-        } else {
-          callChunks.push(data);
-          chunkCount.call++;
-        }
+        writer.append(key === "call" ? "call-audio" : key, data, now() - sessionStartMs, startedAt[key]);
+        chunkCount[key]++;
         emit();
       };
       recorder.onerror = (event) => failIfCurrent(`${key === "mic" ? "Microphone" : "Call audio"} recording failed: ${event?.error?.message || "recorder error"}. Capture stopped.`);
@@ -326,6 +517,24 @@ function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.
     stoppedAt.mic = 0;
     startedAt.call = 0;
     stoppedAt.call = 0;
+    sessionId = newCallId();
+    const trackInfo = (key, label, source) => ({ key, label, source, filename: `${key}-${sessionId}.${extFor(mimeType)}`, mimeType, bytes: 0, chunks: 0, startedOffsetMs: 0, stoppedOffsetMs: 0, captureWindowMs: 0 });
+    try {
+      await storage.create({ id: sessionId, schema: "call-library-record/2", title: "Untitled call", capturedAtISO: sessionStartISO, createdAtISO: sessionStartISO, status: "recording", micOnly: !wantsCall, tracks: [trackInfo("mic", "Microphone", state.mic.label), ...wantsCall ? [trackInfo("call-audio", "Call audio", state.call.label)] : []], provenance: { origin: env.location?.origin || "", storage: "IndexedDB chunks", backend: "none", videoPersisted: false }, timing: null });
+    } catch (e) {
+      releaseAll("");
+      publish({ phase: "error", error: `Local storage unavailable: ${e.message}` });
+      return false;
+    }
+    writer = createChunkWriter({ store: storage, id: sessionId, onFailure: (e) => {
+      publish({ error: `Local write failed: ${e.name}: ${e.message}` });
+      failIfCurrent("Local storage failed. Capture stopped; committed chunks are preserved, but the tail may be missing.");
+    } });
+    if (disposed || current !== generation) {
+      releaseAll("");
+      await storage.update(sessionId, { status: "partial", interrupted: "start-cancelled" });
+      return false;
+    }
     try {
       micRecorder.start(1e3);
       startedAt.mic = now() - sessionStartMs;
@@ -363,9 +572,6 @@ function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.
       track.addEventListener?.("ended", onVideoEnded);
       endedHandlers.push([track, onVideoEnded]);
     }
-    durationTimer = env.setTimeout(() => {
-      if (current === generation) void stop("duration-cap");
-    }, limits.maxDurationMs);
     tickTimer = env.setInterval(() => {
       if (current !== generation || state.phase !== "recording") return;
       const elapsed = now() - sessionStartMs;
@@ -392,24 +598,23 @@ function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.
   const finalizeRecorder = async (recorder, chunks, key, label, source, mimeFallback, timingKey) => {
     if (!recorder) return null;
     const mime = recorder.mimeType || mimeFallback;
-    const blob = new env.Blob(chunks, { type: mime });
-    if (!blob.size) return null;
+    const saved = await storage.get(sessionId);
+    const track = saved.tracks.find((t) => t.key === key);
+    if (!track?.bytes) return null;
     const filename = `${key}-${clockStamp(new Date(sessionStartISO || Date.now()))}.${extFor(mime)}`;
     const stop2 = stoppedAt[timingKey] || now() - sessionStartMs;
     return {
       key,
       label,
-      source,
+      source: `${source}: ${track.source}`,
       filename,
       mime,
-      bytes: blob.size,
-      blob,
-      url: env.URL.createObjectURL(blob),
+      bytes: track.bytes,
       startedOffsetMs: startedAt[timingKey],
       stoppedOffsetMs: stop2,
       captureWindowMs: Math.max(0, stop2 - startedAt[timingKey]),
-      durationMs: await probeDuration(blob),
-      chunks: chunkCount[timingKey]
+      durationMs: null,
+      chunks: track.chunks
     };
   };
   const finish = async (reason) => {
@@ -451,11 +656,13 @@ function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.
     callRecorder = null;
     if (current !== generation) return;
     publish({ phase: "finalizing" });
+    const writeFailure = await writer.drain();
+    if (writeFailure) publish({ interrupted: "storage-failure", error: `Local write failed: ${writeFailure.message}. Committed chunks remain recoverable; the tail may be missing.` });
     const mime = mics?.mimeType || calls?.mimeType || "";
     const files = [];
-    const micFile = await finalizeRecorder(mics, micChunks, "mic", "Microphone", "getUserMedia audio track", mime, "mic");
+    const micFile = await finalizeRecorder(mics, null, "mic", "Microphone", "getUserMedia audio track", mime, "mic");
     if (micFile) files.push(micFile);
-    const callFile = wantsCall ? await finalizeRecorder(calls, callChunks, "call-audio", "Call audio", "getDisplayMedia shared audio track", mime, "call") : null;
+    const callFile = wantsCall ? await finalizeRecorder(calls, null, "call-audio", "Call audio", "getDisplayMedia shared audio track", mime, "call") : null;
     if (callFile) files.push(callFile);
     if (current !== generation) {
       for (const file of files) if (file.url) env.URL.revokeObjectURL(file.url);
@@ -465,7 +672,7 @@ function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.
     const trimmed = reason === "duration-cap" || reason === "limits";
     const timing = {
       schema: "call-recorder-timing/1",
-      captureBuffer: "bounded in-memory until stop; local library save is a separate transaction",
+      captureBuffer: "incremental IndexedDB chunks; bounded pending writes",
       sessionStartedISO: sessionStartISO,
       sessionDurationMs: now() - sessionStartMs,
       mimeType: mime,
@@ -491,42 +698,39 @@ function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.
       finalizationComplete: complete,
       interruption: state.interrupted || null,
       videoPersisted: false,
-      durationNote: "MediaRecorder WebM output has no duration header. containerDurationMs is measured by decoding in this page; some players will show an unknown length.",
+      durationNote: "Container duration is unmeasured. MediaRecorder WebM output may have no duration header; some players show an unknown length.",
       note: "Two independent audio files plus shared timing offsets. This is not a muxed two-track container."
     };
-    const timingBlob = new env.Blob([JSON.stringify(timing, null, 2)], { type: "application/json" });
-    const timingFile = {
-      key: "timing",
-      label: "Timing metadata",
-      source: "generated in this page",
-      filename: `timing-${clockStamp(new Date(sessionStartISO))}.json`,
-      mime: "application/json",
-      bytes: timingBlob.size,
-      blob: timingBlob,
-      url: env.URL.createObjectURL(timingBlob),
-      durationMs: null,
-      chunks: 1
-    };
-    const partial = !!state.interrupted;
+    const partial = !!state.interrupted || !!writeFailure || files.length !== (wantsCall ? 2 : 1);
+    try {
+      await storage.update(sessionId, { status: partial || !complete ? "partial" : "saved", tracks: files.map((f) => ({ key: f.key, label: f.label, source: f.source, filename: f.filename, mimeType: f.mime, bytes: f.bytes, chunks: f.chunks, startedOffsetMs: f.startedOffsetMs, stoppedOffsetMs: f.stoppedOffsetMs, captureWindowMs: f.captureWindowMs })), timing, interrupted: state.interrupted || null, stopReason: reason, sessionDurationMs: timing.sessionDurationMs });
+    } catch (e) {
+      publish({ interrupted: "storage-failure", error: `Final metadata write failed: ${e.message}. Recover committed chunks after reload.` });
+    }
     const interruptedMessage = state.interrupted ? `${state.message} ` : "";
     const capNote = trimmed ? " Capture stopped at the cap; the audio already recorded is kept. " : "";
     publish({
-      phase: files.length === 0 ? "error" : partial ? "partial" : "done",
+      phase: files.length === 0 ? "error" : partial || state.interrupted ? "partial" : "done",
       saving: false,
       mic: { ...state.mic, live: false, level: 0 },
       call: { ...state.call, live: false, level: 0 },
-      files: [...files, timingFile],
+      files,
+      sessionId,
       timing,
       totalBytes,
       elapsedMs: now() - sessionStartMs,
       message: files.length === 0 ? "Stopped with no audio data. Nothing to download." : `${interruptedMessage}${files.length} separate audio file${files.length === 1 ? "" : "s"} ready below, plus timing metadata.${state.micOnly ? " Microphone only." : ""}${capNote} Nothing left this page.`,
-      error: files.length === 0 ? "No audio chunks were produced. Try a longer recording or check the input device." : !complete ? "Encoder finalization timed out. Exportable audio may be incomplete." : ""
+      error: state.error || (files.length === 0 ? "No audio chunks were committed." : !complete ? "Encoder finalization timed out. Committed audio may be incomplete." : "")
     });
   };
   const stop = async (reason = "user") => {
     if (stopping) return stopping;
     if (state.phase !== "recording") return false;
-    stopping = finish(reason).then(() => true);
+    stopping = finish(reason).then(() => true).catch((error) => {
+      releaseAll("");
+      publish({ phase: "partial", saving: false, sessionId, interrupted: "storage-failure", error: `Local finalization failed: ${error.message}. Committed chunks remain recoverable after reload.` });
+      return false;
+    });
     try {
       return await stopping;
     } finally {
@@ -565,6 +769,11 @@ function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.
     disposed = true;
     if (state.phase === "recording") return stop("disposal");
     if (stopping) return stopping;
+    if (state.phase === "starting") {
+      generation++;
+      releaseAll("");
+      return Promise.resolve();
+    }
     if (capturePhases.includes(state.phase)) return Promise.resolve();
     generation++;
     releaseAll("");
@@ -598,224 +807,6 @@ function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.
   };
 }
 
-// desktop/src/library.mjs
-var RECORD_SCHEMA = "call-library-record/1";
-var MAX_TITLE = 120;
-var ID_RE = /^call-\d{8}-\d{6}-[a-z0-9]{6}$/;
-var pad = (n, w = 2) => String(n).padStart(w, "0");
-function newCallId(date = /* @__PURE__ */ new Date(), random = () => crypto.getRandomValues(new Uint8Array(3))) {
-  const stamp = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
-  const bytes = Array.from(random());
-  return `call-${stamp}-${bytes.map((b) => b.toString(36).padStart(2, "0")).join("").slice(0, 6)}`;
-}
-function isCallId(id) {
-  return typeof id === "string" && ID_RE.test(id);
-}
-function normalizeTitle(title) {
-  const value = typeof title === "string" ? title.trim().replace(/\s+/g, " ") : "";
-  if (!value) return "Untitled call";
-  return value.slice(0, MAX_TITLE);
-}
-function cloneTiming(timing) {
-  return JSON.parse(JSON.stringify(timing ?? null));
-}
-function buildCallRecord(result, { id, title = "", origin = "", createdAtISO = (/* @__PURE__ */ new Date()).toISOString() } = {}) {
-  if (!result || !Array.isArray(result.files)) throw new Error("No finished recording to save.");
-  if (!isCallId(id)) throw new Error(`Invalid call ID: ${String(id)}`);
-  const audioFiles = result.files.filter((file) => file.key !== "timing" && file.blob instanceof Blob && file.blob.size > 0);
-  if (audioFiles.length === 0) throw new Error("nothing-to-save");
-  if (!audioFiles.some((file) => file.key === "mic")) throw new Error("The recording has no microphone track.");
-  const timing = cloneTiming(result.timing);
-  if (!timing) throw new Error("The recording has no timing metadata.");
-  const tracks = audioFiles.map((file) => ({
-    key: file.key,
-    label: file.label,
-    source: file.source,
-    filename: file.filename,
-    mimeType: file.mime,
-    bytes: file.bytes,
-    blob: file.blob,
-    startedOffsetMs: file.startedOffsetMs,
-    stoppedOffsetMs: file.stoppedOffsetMs,
-    captureWindowMs: file.captureWindowMs,
-    containerDurationMs: file.durationMs ?? null,
-    chunks: file.chunks ?? null
-  }));
-  const micOnly = timing.capture?.callAudio?.source === "not captured";
-  if (micOnly && tracks.length !== 1) throw new Error("Microphone-only timing must own exactly one track.");
-  if (!micOnly && tracks.length !== 2) throw new Error("A two-input call must own exactly two tracks.");
-  return {
-    id,
-    schema: RECORD_SCHEMA,
-    title: normalizeTitle(title),
-    createdAtISO,
-    capturedAtISO: result.startedAtISO || timing.sessionStartedISO || createdAtISO,
-    sessionDurationMs: timing.sessionDurationMs ?? null,
-    stopReason: timing.stopReason || "user",
-    interrupted: timing.interruption || null,
-    micOnly,
-    tracks,
-    timing,
-    provenance: {
-      capture: "two independent browser MediaRecorder instances",
-      storage: "IndexedDB, this origin and this browser profile",
-      backend: "none",
-      mixed: false,
-      synchronizedContainer: false,
-      videoPersisted: false,
-      origin
-    }
-  };
-}
-function metadataFor(record) {
-  return {
-    schema: RECORD_SCHEMA,
-    id: record.id,
-    title: record.title,
-    createdAtISO: record.createdAtISO,
-    capturedAtISO: record.capturedAtISO,
-    sessionDurationMs: record.sessionDurationMs,
-    stopReason: record.stopReason,
-    interrupted: record.interrupted,
-    micOnly: record.micOnly,
-    provenance: record.provenance,
-    tracks: record.tracks.map(({ blob, ...rest }) => rest),
-    timing: record.timing,
-    note: "Two separate audio files plus shared timing offsets. Not a muxed or synchronized two-track container."
-  };
-}
-function createLibrary({ backend, origin = "", now = () => /* @__PURE__ */ new Date(), makeId = () => newCallId(now()) } = {}) {
-  if (!backend) throw new Error("createLibrary needs a storage backend.");
-  const save = async (result, { title = "" } = {}) => {
-    const record = buildCallRecord(result, { id: makeId(), title, origin, createdAtISO: now().toISOString() });
-    await backend.put(record);
-    return record;
-  };
-  const list = async () => {
-    const records = await backend.getAll();
-    return [...records].sort((a, b) => String(b.capturedAtISO).localeCompare(String(a.capturedAtISO)));
-  };
-  const rename = async (id, title) => {
-    if (!isCallId(id)) throw new Error(`Invalid call ID: ${String(id)}`);
-    const next = normalizeTitle(title);
-    const saved = await backend.updateTitle(id, next);
-    if (!saved) throw new Error("That saved call no longer exists.");
-    return next;
-  };
-  const remove = async (id) => {
-    if (!isCallId(id)) throw new Error(`Invalid call ID: ${String(id)}`);
-    const record = await backend.get(id);
-    if (!record) throw new Error("That saved call no longer exists.");
-    await backend.delete(id);
-    return id;
-  };
-  return { save, list, rename, remove };
-}
-
-// desktop/src/idb-backend.mjs
-var DB_NAME = "call-recorder-local-library";
-var DB_VERSION = 1;
-var STORE = "calls";
-function createIdbBackend({ indexedDBImpl = globalThis.indexedDB, dbName = DB_NAME, version = DB_VERSION } = {}) {
-  if (!indexedDBImpl) throw new Error("IndexedDB is not available in this browser.");
-  let dbPromise = null;
-  const openDb = () => {
-    if (dbPromise) return dbPromise;
-    dbPromise = new Promise((resolve, reject) => {
-      let request;
-      try {
-        request = indexedDBImpl.open(dbName, version);
-      } catch (error) {
-        reject(error);
-        return;
-      }
-      request.onupgradeneeded = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" });
-      };
-      request.onsuccess = () => {
-        const db = request.result;
-        db.onversionchange = () => {
-          try {
-            db.close();
-          } catch {
-          }
-          dbPromise = null;
-        };
-        resolve(db);
-      };
-      request.onerror = () => reject(request.error || new Error("Opening IndexedDB failed."));
-      request.onblocked = () => reject(new Error("IndexedDB is blocked by another open copy of this page."));
-    }).catch((error) => {
-      dbPromise = null;
-      throw error;
-    });
-    return dbPromise;
-  };
-  const withStore = async (mode, fn) => {
-    const db = await openDb();
-    return new Promise((resolve, reject) => {
-      let transaction;
-      try {
-        transaction = db.transaction(STORE, mode);
-      } catch (error) {
-        reject(error);
-        return;
-      }
-      const store = transaction.objectStore(STORE);
-      let value;
-      let failure = null;
-      transaction.oncomplete = () => failure ? reject(failure) : resolve(value);
-      transaction.onerror = () => reject(failure || transaction.error || new Error("IndexedDB transaction failed."));
-      transaction.onabort = () => reject(failure || transaction.error || new Error("IndexedDB transaction was aborted."));
-      try {
-        value = fn(store, (v) => {
-          value = v;
-        });
-      } catch (error) {
-        failure = error;
-        try {
-          transaction.abort();
-        } catch {
-        }
-      }
-    });
-  };
-  const put = async (record) => {
-    await withStore("readwrite", (store) => {
-      store.put(record);
-    });
-    return record;
-  };
-  const getAll = () => withStore("readonly", (store, set) => {
-    const request = store.getAll();
-    request.onsuccess = () => set(request.result || []);
-  });
-  const get = (id) => withStore("readonly", (store, set) => {
-    const request = store.get(id);
-    request.onsuccess = () => set(request.result || null);
-  });
-  const deleteOne = (id) => withStore("readwrite", (store) => {
-    store.delete(id);
-  });
-  const updateTitle = (id, title) => withStore("readwrite", (store, set) => {
-    const request = store.get(id);
-    request.onsuccess = () => {
-      const record = request.result;
-      if (!record) return;
-      store.put({ ...record, title, titleUpdatedAtISO: (/* @__PURE__ */ new Date()).toISOString() });
-      set(title);
-    };
-  });
-  return { put, getAll, get, delete: deleteOne, updateTitle, close: () => {
-    try {
-      dbPromise?.then((db) => db.close());
-    } catch {
-    }
-    dbPromise = null;
-  } };
-}
-
 // desktop/src/plugin.mjs
 var box = { border: "1px solid var(--ui-stroke-secondary)", borderRadius: 8, padding: 12, minWidth: 0 };
 var row = { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 };
@@ -824,61 +815,28 @@ var fmt = (ms) => `${Math.floor(ms / 6e4)}:${String(Math.floor(ms / 1e3) % 60).p
 var action = (text, onClick, props = {}) => h(Button, { type: "button", variant: "secondary", size: "touch", style: { justifySelf: "start" }, onClick, ...props }, text);
 function createController(env = window) {
   const listeners = /* @__PURE__ */ new Set(), cleanups = /* @__PURE__ */ new Set();
-  let backend;
-  try {
-    backend = createIdbBackend({ indexedDBImpl: env.indexedDB });
-  } catch (error) {
-    backend = { put: async () => {
-      throw error;
-    }, getAll: async () => {
-      throw error;
-    }, close() {
-    } };
-  }
-  const library = createLibrary({ backend, origin: env.location.origin });
-  let disposed = false, lastSession = "", saving = null, disposal = null;
-  const ui = { calls: [], error: "", saveState: "none", saveError: "", pending: null, ready: false };
+  const backend = createChunkStore({ indexedDBImpl: env.indexedDB });
+  let disposed = false, disposal;
+  const ui = { calls: [], error: "", saveState: "none", saveError: "", ready: false };
   const emit = () => {
     if (!disposed) for (const fn of listeners) fn();
   };
-  const core = createCallRecorder({ env });
+  const core = createCallRecorder({ env, storage: backend });
   const refresh = async () => {
-    ui.calls = await library.list();
+    ui.calls = (await backend.list()).map((r) => r.status === "recording" ? { ...r, status: "recovered", interrupted: "Interrupted session. Only committed chunks recovered; encoder tail may be missing." } : r);
     emit();
-  };
-  const save = async (result = ui.pending) => {
-    if (!result || saving) return saving;
-    ui.pending = result;
-    ui.saveState = "saving";
-    ui.saveError = "";
-    emit();
-    saving = (async () => {
-      try {
-        await library.save(result);
-        ui.saveState = "saved";
-        ui.pending = null;
-        await refresh().catch((error) => {
-          ui.error = `Saved, but library refresh failed: ${error.message}`;
-        });
-      } catch (error) {
-        ui.saveState = "failed";
-        ui.saveError = `${error.name}: ${error.message}`;
-      } finally {
-        saving = null;
-        emit();
-      }
-    })();
-    return saving;
   };
   const unsubscribe = core.subscribe((state) => {
+    ui.saveState = state.phase === "done" ? "saved" : state.phase === "partial" ? "partial" : state.phase === "recording" ? "recording" : state.saving ? "saving" : "none";
+    ui.saveError = state.error;
     emit();
-    if (!["done", "partial"].includes(state.phase) || !state.files.some((f) => f.key === "mic")) return;
-    if (lastSession === state.startedAtISO) return;
-    lastSession = state.startedAtISO;
-    void save({ files: [...state.files], timing: state.timing, startedAtISO: state.startedAtISO });
+    if (["done", "partial", "error"].includes(state.phase)) void refresh().catch((e) => {
+      ui.error = e.message;
+      emit();
+    });
   });
-  void refresh().catch((error) => {
-    ui.error = `Local library unavailable: ${error.message}. Downloads still work.`;
+  void refresh().catch((e) => {
+    ui.error = `Local library unavailable: ${e.message}`;
   }).finally(() => {
     ui.ready = true;
     emit();
@@ -889,24 +847,16 @@ function createController(env = window) {
     const drain = core.teardown();
     for (const cleanup of [...cleanups]) cleanup();
     listeners.clear();
-    disposal = (async () => {
-      try {
-        await drain;
-        await saving;
-      } finally {
-        unsubscribe();
-        for (const file of core.state.files) if (file.url) env.URL.revokeObjectURL(file.url);
-        backend.close();
-      }
-    })();
+    disposal = Promise.resolve(drain).finally(() => {
+      unsubscribe();
+      backend.close();
+    });
     return disposal;
   };
   return {
     core,
     ui,
-    library,
     backend,
-    save,
     refresh,
     dispose,
     onCleanup(fn) {
@@ -926,19 +876,19 @@ function createController(env = window) {
     },
     async rename(id, title) {
       try {
-        await library.rename(id, title);
+        await backend.update(id, { title: title.trim().slice(0, 120) || "Untitled call" });
         await refresh();
       } catch (e) {
-        ui.error = `Title not saved: ${e.message}`;
+        ui.error = e.message;
         emit();
       }
     },
     async remove(id) {
       try {
-        await library.remove(id);
+        await backend.remove(id);
         await refresh();
       } catch (e) {
-        ui.error = `Delete failed: ${e.message}`;
+        ui.error = e.message;
         emit();
       }
     }
@@ -953,16 +903,39 @@ function useBlob(blob) {
   }, [blob]);
   return url;
 }
-function Track({ track }) {
-  const url = useBlob(track.blob);
+function Track({ track, record, controller }) {
+  const [blob, setBlob] = useState(null), [error, setError] = useState(""), [busy, setBusy] = useState(false);
+  const load = async () => {
+    setBusy(true);
+    try {
+      setBlob(await controller.backend.assemble(record.id, track.key));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const exportFile = async () => {
+    try {
+      const handle = await window.showSaveFilePicker({ suggestedName: track.filename });
+      await controller.backend.exportTo(record.id, track.key, await handle.createWritable());
+    } catch (e) {
+      if (e.name !== "AbortError") setError(e.message);
+    }
+  };
   return h(
     "section",
-    { style: { ...box, display: "grid", gap: 8 }, "data-track-key": track.key },
+    { style: box, "data-track-key": track.key },
     h("strong", null, track.label),
-    h("small", { style: note }, `${track.source} \xB7 ${track.mimeType} \xB7 ${track.bytes} bytes \xB7 start +${track.startedOffsetMs.toFixed(0)} ms \xB7 capture window ${track.captureWindowMs.toFixed(0)} ms \xB7 decoded duration ${track.containerDurationMs ?? "not measured"}`),
-    h("audio", { controls: true, preload: "metadata", src: url, style: { width: "100%" }, "aria-label": `${track.label} playback` }),
-    h("a", { href: url, download: track.filename, "data-role": `download-${track.key}`, style: { color: "var(--ui-accent)" } }, `Download ${track.label}`)
+    h("p", { style: note }, `${track.source} \xB7 ${track.bytes} bytes \xB7 ${track.chunks} committed chunks \xB7 start +${track.startedOffsetMs.toFixed(0)} ms`),
+    window.showSaveFilePicker && action("Export track to file", exportFile),
+    !blob ? action(busy ? "Loading\u2026" : "Load playback / download", load, { disabled: busy }) : h(LoadedTrack, { blob, track }),
+    error && h("p", { role: "alert" }, error)
   );
+}
+function LoadedTrack({ blob, track }) {
+  const url = useBlob(blob);
+  return h("div", null, h("audio", { controls: true, src: url, style: { width: "100%" }, "aria-label": `${track.label} playback` }), h("a", { href: url, download: track.filename, "data-role": `download-${track.key}` }, `Download ${track.label}`));
 }
 function Metadata({ record }) {
   const [blob] = useState(() => new Blob([JSON.stringify(metadataFor(record), null, 2)], { type: "application/json" }));
@@ -978,8 +951,9 @@ function Card({ record, controller }) {
     h("label", null, "Call title", h(Input, { value: title, maxLength: 120, "aria-label": "Call title", onChange: (e) => setTitle(e.target.value) })),
     action("Save title", () => controller.rename(record.id, title)),
     h(Badge, null, record.micOnly ? "Microphone only" : "Microphone + call audio"),
+    h(Badge, null, record.status === "saved" ? "Saved" : record.status === "recovered" ? "Recovered partial" : "Partial"),
     record.interrupted && h("p", null, `Interrupted: ${record.interrupted}`),
-    ...record.tracks.map((track) => h(Track, { key: track.key, track })),
+    ...record.tracks.map((track) => h(Track, { key: track.key, track, record, controller })),
     h("small", { style: note }, "Separate files with shared timing offsets. No mixing, muxing or drift correction."),
     h(Metadata, { key: record.title, record }),
     !confirm ? action("Delete this call", () => setConfirm(true)) : h(
@@ -1060,7 +1034,7 @@ function RecorderPane({ controller: c, onUnmount }) {
     "div",
     { style: { padding: 16, display: "grid", alignContent: "start", gap: 12, overflow: "auto", height: "100%", color: "var(--ui-text-primary)", fontSize: 14 }, "data-recorder-pane": true },
     h("h2", { style: { margin: 0 } }, "Call recorder"),
-    h("p", { style: note }, "Capture on this client device. No backend, audio upload, transcription or model calls. 3-minute / 24 MiB cap."),
+    h("p", { style: note }, "Capture on this client device. No backend, audio upload, transcription or model calls. Chunks commit locally throughout capture; no total duration cap."),
     h(
       "div",
       { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 240px), 1fr))", gap: 12 } },
@@ -1082,14 +1056,12 @@ function RecorderPane({ controller: c, onUnmount }) {
       }, { disabled: busy || recording || u.saveState === "failed" })
     ),
     h("p", { role: s.error ? "alert" : "status", style: note }, s.error || s.message),
-    u.saveState !== "none" && h("p", { role: "status", "data-save-state": u.saveState }, u.saveState === "saving" ? "Saving audio and timing atomically\u2026" : u.saveState === "saved" ? "Saved in this browser." : `Not saved. ${u.saveError}. Download before leaving; retry below.`),
-    u.saveState === "failed" && action("Retry save", () => c.save()),
-    u.saveState === "failed" && h("div", { style: box }, ...s.files.map((f) => h("p", { key: f.key }, h("a", { href: f.url, download: f.filename }, `Download ${f.label}`)))),
+    u.saveState !== "none" && h("p", { role: "status", "data-save-state": u.saveState }, u.saveState === "saving" ? "Committing final chunks\u2026" : u.saveState === "recording" ? "Recording; chunks committing locally." : u.saveState === "saved" ? "Saved in this browser." : `Partial, not fully saved. ${u.saveError}. Committed chunks remain in the library.`),
     h(
       "section",
       { style: box },
       h("strong", null, "This browser\u2019s saved calls"),
-      h("p", { style: note }, "IndexedDB belongs to this origin and browser profile, not the connected machine or Hermes profile. It can be evicted or cleared. Download a backup. Calls from localhost:8817 do not move here: export there before switching."),
+      h("p", { style: note }, "Playback and fallback downloads assemble one selected track in memory. For long calls use Export track to file where supported, which writes one chunk at a time. Legacy v1 recordings remain untouched in their original database; export with the previous version. IndexedDB belongs to this origin and browser profile, not the connected machine or Hermes profile. It can be evicted or cleared. Download a backup. Calls from localhost:8817 do not move here: export there before switching."),
       action("Estimate storage", async () => {
         try {
           const v = await navigator.storage.estimate();

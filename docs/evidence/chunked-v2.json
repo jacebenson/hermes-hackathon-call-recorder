@@ -1,0 +1,57 @@
+{
+  "artifact": "packages/call-recorder/desktop/plugin.js",
+  "artifact_sha256": "573c22e52da0a8b9459383d1eefb51d33eb0a2ee5a046956b95cc734fa6de9b9",
+  "browser": "Chromium 155.0.8059.84 Arch Linux",
+  "fixture": "Actual installed Hermes runtime loader, React/SDK/ThemeProvider/CSS; real MediaRecorder and IndexedDB; fake mic and injected WebAudio/canvas display share; not OS picker or Electron proof. Stream export uses test writable sink. Interrupted reload is not process-crash proof.",
+  "full_browser_checks": 36,
+  "full_browser_all_pass": true,
+  "short_repeat_checks": 31,
+  "short_repeat_all_pass": true,
+  "elapsed_recording_ms": 183112.69999998808,
+  "long_track_bytes_and_hashes": [
+    {
+      "emitted": 1483566,
+      "stored": 1483566,
+      "emittedHash": "3bf21e55e31d1e25d3ded0115f9f32dd0cf91b131f7f51cacf9421ce7258572f",
+      "storedHash": "3bf21e55e31d1e25d3ded0115f9f32dd0cf91b131f7f51cacf9421ce7258572f"
+    },
+    {
+      "emitted": 1485926,
+      "stored": 1485926,
+      "emittedHash": "3719a37dbc2c59f2c67fbe6d0f4be11232787f7ba8788745d1ee2216c3278fe0",
+      "storedHash": "3719a37dbc2c59f2c67fbe6d0f4be11232787f7ba8788745d1ee2216c3278fe0"
+    }
+  ],
+  "export_hashes": {
+    "stored": "9339991149467983d6207b1e068a252e2fbc2c4af6c8f0eee79933952a495806",
+    "download": "9339991149467983d6207b1e068a252e2fbc2c4af6c8f0eee79933952a495806",
+    "streamed": "9339991149467983d6207b1e068a252e2fbc2c4af6c8f0eee79933952a495806"
+  },
+  "recovery": {
+    "before": {
+      "id": "call-20261111-080724-5y6v0a",
+      "bytes": 13856,
+      "hash": "5c85040fa47d16f32381ff566c1f2650fe5698b60c1f8853347e96d1c24eaf2f"
+    },
+    "after": {
+      "id": "call-20261111-080724-5y6v0a",
+      "bytes": 17759,
+      "hash": "3e39198add6d2b438cf97f8f597e4736a0cdf0036a5feead4940e173ee7a04f7",
+      "prefixHash": "5c85040fa47d16f32381ff566c1f2650fe5698b60c1f8853347e96d1c24eaf2f"
+    }
+  },
+  "deterministic": {
+    "chunked": 6,
+    "lifecycle": 17,
+    "legacy_library": 12,
+    "distribution": 2
+  },
+  "legacy_python": {
+    "base_tests": 143,
+    "final_tests": 145,
+    "both_failures": 3,
+    "both_errors": 2,
+    "baseline_sha": "8dc459e247b36d72b6b557ce45a67aa660de8aa1"
+  },
+  "live_acceptance": "BLOCKED: actual beast-1 browser Hermes and installed native Electron, operator SSH host-key verification unresolved. No live install or deployment."
+}

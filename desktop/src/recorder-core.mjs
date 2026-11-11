@@ -4,11 +4,12 @@
 // track is never attached to a recorder and is released with everything else.
 //
 // Framework-free and dependency-injected so it can run in a browser and in Node
-// tests. No network, no upload, no transcription. Capture itself still holds
-// everything in memory; the page may hand the resulting Blobs to a local
-// IndexedDB library after stop. This module never touches storage.
+// tests. No network, upload or transcription. Persist timeslices incrementally;
+// ordinary stop reads metadata only and never assembles full track Blobs.
 
-export const LIMITS = Object.freeze({ maxDurationMs: 180_000, maxBytes: 24 * 1024 * 1024 })
+import { createChunkWriter } from './chunk-store.mjs'
+import { newCallId } from './library.mjs'
+export const LIMITS = Object.freeze({ maxDurationMs: Infinity, maxBytes: Infinity })
 
 const MIME_CANDIDATES = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4']
 
@@ -47,7 +48,7 @@ function friendlyMediaError(error, input) {
   return `${input === 'mic' ? 'Microphone' : 'Call audio'} capture failed: ${error?.message || name || 'unknown error'}`
 }
 
-export function createCallRecorder({ env, limits = LIMITS, now = () => env.performance.now(), onState } = {}) {
+export function createCallRecorder({ env, storage, limits = LIMITS, now = () => env.performance.now(), onState } = {}) {
   const state = {
     phase: 'idle',
     mic: { status: 'none', label: '', live: false, level: 0 },
@@ -78,8 +79,8 @@ export function createCallRecorder({ env, limits = LIMITS, now = () => env.perfo
   let callStream = null
   let micRecorder = null
   let callRecorder = null
-  let micChunks = []
-  let callChunks = []
+  let writer = null
+  let sessionId = null
   let bytes = 0
   let generation = 0
   let disposed = false
@@ -274,8 +275,7 @@ export function createCallRecorder({ env, limits = LIMITS, now = () => env.perfo
 
     const current = ++generation
     publish({ phase: 'starting', error: '', files: [], timing: null, interrupted: '', totalBytes: 0, saving: false })
-    micChunks = []
-    callChunks = []
+    if (!storage) { publish({ phase: 'error', error: 'Incremental local storage is required.' }); return false }
     bytes = 0
     chunkCount.mic = 0
     chunkCount.call = 0
@@ -318,11 +318,8 @@ export function createCallRecorder({ env, limits = LIMITS, now = () => env.perfo
         if (!data || !data.size) return
         bytes += data.size
         state.totalBytes = bytes
-        if (bytes > limits.maxBytes) {
-          failIfCurrent(`Recording hit the ${Math.round(limits.maxBytes / 1048576)} MiB in-memory cap. Capture stopped; the audio already recorded is kept below.`)
-          return
-        }
-        if (key === 'mic') { micChunks.push(data); chunkCount.mic++ } else { callChunks.push(data); chunkCount.call++ }
+        writer.append(key === 'call' ? 'call-audio' : key, data, now() - sessionStartMs, startedAt[key])
+        chunkCount[key]++
         emit()
       }
       recorder.onerror = (event) => failIfCurrent(`${key === 'mic' ? 'Microphone' : 'Call audio'} recording failed: ${event?.error?.message || 'recorder error'}. Capture stopped.`)
@@ -336,6 +333,13 @@ export function createCallRecorder({ env, limits = LIMITS, now = () => env.perfo
     stoppedAt.mic = 0
     startedAt.call = 0
     stoppedAt.call = 0
+    sessionId = newCallId()
+    const trackInfo = (key, label, source) => ({ key, label, source, filename: `${key}-${sessionId}.${extFor(mimeType)}`, mimeType, bytes: 0, chunks: 0, startedOffsetMs: 0, stoppedOffsetMs: 0, captureWindowMs: 0 })
+    try {
+      await storage.create({ id: sessionId, schema: 'call-library-record/2', title: 'Untitled call', capturedAtISO: sessionStartISO, createdAtISO: sessionStartISO, status: 'recording', micOnly: !wantsCall, tracks: [trackInfo('mic', 'Microphone', state.mic.label), ...(wantsCall ? [trackInfo('call-audio', 'Call audio', state.call.label)] : [])], provenance: { origin: env.location?.origin || '', storage: 'IndexedDB chunks', backend: 'none', videoPersisted: false }, timing: null })
+    } catch (e) { releaseAll(''); publish({ phase: 'error', error: `Local storage unavailable: ${e.message}` }); return false }
+    writer = createChunkWriter({ store: storage, id: sessionId, onFailure: e => { publish({ error: `Local write failed: ${e.name}: ${e.message}` }); failIfCurrent('Local storage failed. Capture stopped; committed chunks are preserved, but the tail may be missing.') } })
+    if (disposed || current !== generation) { releaseAll(''); await storage.update(sessionId, { status: 'partial', interrupted: 'start-cancelled' }); return false }
     try {
       micRecorder.start(1000)
       startedAt.mic = now() - sessionStartMs
@@ -376,7 +380,7 @@ export function createCallRecorder({ env, limits = LIMITS, now = () => env.perfo
       endedHandlers.push([track, onVideoEnded])
     }
 
-    durationTimer = env.setTimeout(() => { if (current === generation) void stop('duration-cap') }, limits.maxDurationMs)
+    // No arbitrary total duration or byte cap.
     tickTimer = env.setInterval(() => {
       if (current !== generation || state.phase !== 'recording') return
       const elapsed = now() - sessionStartMs
@@ -406,24 +410,23 @@ export function createCallRecorder({ env, limits = LIMITS, now = () => env.perfo
   const finalizeRecorder = async (recorder, chunks, key, label, source, mimeFallback, timingKey) => {
     if (!recorder) return null
     const mime = recorder.mimeType || mimeFallback
-    const blob = new env.Blob(chunks, { type: mime })
-    if (!blob.size) return null
+    const saved = await storage.get(sessionId)
+    const track = saved.tracks.find(t => t.key === key)
+    if (!track?.bytes) return null
     const filename = `${key}-${clockStamp(new Date(sessionStartISO || Date.now()))}.${extFor(mime)}`
     const stop = stoppedAt[timingKey] || (now() - sessionStartMs)
     return {
       key,
       label,
-      source,
+      source: `${source}: ${track.source}`,
       filename,
       mime,
-      bytes: blob.size,
-      blob,
-      url: env.URL.createObjectURL(blob),
+      bytes: track.bytes,
       startedOffsetMs: startedAt[timingKey],
       stoppedOffsetMs: stop,
       captureWindowMs: Math.max(0, stop - startedAt[timingKey]),
-      durationMs: await probeDuration(blob),
-      chunks: chunkCount[timingKey]
+      durationMs: null,
+      chunks: track.chunks
     }
   }
 
@@ -461,11 +464,13 @@ export function createCallRecorder({ env, limits = LIMITS, now = () => env.perfo
     callRecorder = null
     if (current !== generation) return
     publish({ phase: 'finalizing' })
+    const writeFailure = await writer.drain()
+    if (writeFailure) publish({ interrupted: 'storage-failure', error: `Local write failed: ${writeFailure.message}. Committed chunks remain recoverable; the tail may be missing.` })
     const mime = mics?.mimeType || calls?.mimeType || ''
     const files = []
-    const micFile = await finalizeRecorder(mics, micChunks, 'mic', 'Microphone', 'getUserMedia audio track', mime, 'mic')
+    const micFile = await finalizeRecorder(mics, null, 'mic', 'Microphone', 'getUserMedia audio track', mime, 'mic')
     if (micFile) files.push(micFile)
-    const callFile = wantsCall ? await finalizeRecorder(calls, callChunks, 'call-audio', 'Call audio', 'getDisplayMedia shared audio track', mime, 'call') : null
+    const callFile = wantsCall ? await finalizeRecorder(calls, null, 'call-audio', 'Call audio', 'getDisplayMedia shared audio track', mime, 'call') : null
     if (callFile) files.push(callFile)
     if (current !== generation) {
       for (const file of files) if (file.url) env.URL.revokeObjectURL(file.url)
@@ -476,7 +481,7 @@ export function createCallRecorder({ env, limits = LIMITS, now = () => env.perfo
     const trimmed = reason === 'duration-cap' || reason === 'limits'
     const timing = {
       schema: 'call-recorder-timing/1',
-      captureBuffer: 'bounded in-memory until stop; local library save is a separate transaction',
+      captureBuffer: 'incremental IndexedDB chunks; bounded pending writes',
       sessionStartedISO: sessionStartISO,
       sessionDurationMs: now() - sessionStartMs,
       mimeType: mime,
@@ -497,37 +502,37 @@ export function createCallRecorder({ env, limits = LIMITS, now = () => env.perfo
       finalizationComplete: complete,
       interruption: state.interrupted || null,
       videoPersisted: false,
-      durationNote: 'MediaRecorder WebM output has no duration header. containerDurationMs is measured by decoding in this page; some players will show an unknown length.',
+      durationNote: 'Container duration is unmeasured. MediaRecorder WebM output may have no duration header; some players show an unknown length.',
       note: 'Two independent audio files plus shared timing offsets. This is not a muxed two-track container.'
     }
-    const timingBlob = new env.Blob([JSON.stringify(timing, null, 2)], { type: 'application/json' })
-    const timingFile = {
-      key: 'timing', label: 'Timing metadata', source: 'generated in this page', filename: `timing-${clockStamp(new Date(sessionStartISO))}.json`,
-      mime: 'application/json', bytes: timingBlob.size, blob: timingBlob, url: env.URL.createObjectURL(timingBlob), durationMs: null, chunks: 1
-    }
-    const partial = !!state.interrupted
+    const partial = !!state.interrupted || !!writeFailure || files.length !== (wantsCall ? 2 : 1)
+    try { await storage.update(sessionId, { status: partial || !complete ? 'partial' : 'saved', tracks: files.map(f => ({ key: f.key, label: f.label, source: f.source, filename: f.filename, mimeType: f.mime, bytes: f.bytes, chunks: f.chunks, startedOffsetMs: f.startedOffsetMs, stoppedOffsetMs: f.stoppedOffsetMs, captureWindowMs: f.captureWindowMs })), timing, interrupted: state.interrupted || null, stopReason: reason, sessionDurationMs: timing.sessionDurationMs }) }
+    catch (e) { publish({ interrupted: 'storage-failure', error: `Final metadata write failed: ${e.message}. Recover committed chunks after reload.` }) }
     const interruptedMessage = state.interrupted ? `${state.message} ` : ''
     const capNote = trimmed ? ' Capture stopped at the cap; the audio already recorded is kept. ' : ''
     publish({
-      phase: files.length === 0 ? 'error' : partial ? 'partial' : 'done',
+      phase: files.length === 0 ? 'error' : (partial || state.interrupted) ? 'partial' : 'done',
       saving: false,
       mic: { ...state.mic, live: false, level: 0 },
       call: { ...state.call, live: false, level: 0 },
-      files: [...files, timingFile],
+      files: files,
+      sessionId,
       timing,
       totalBytes,
       elapsedMs: now() - sessionStartMs,
       message: files.length === 0
         ? 'Stopped with no audio data. Nothing to download.'
         : `${interruptedMessage}${files.length} separate audio file${files.length === 1 ? '' : 's'} ready below, plus timing metadata.${state.micOnly ? ' Microphone only.' : ''}${capNote} Nothing left this page.`,
-      error: files.length === 0 ? 'No audio chunks were produced. Try a longer recording or check the input device.' : !complete ? 'Encoder finalization timed out. Exportable audio may be incomplete.' : ''
+      error: state.error || (files.length === 0 ? 'No audio chunks were committed.' : !complete ? 'Encoder finalization timed out. Committed audio may be incomplete.' : '')
     })
   }
 
   const stop = async (reason = 'user') => {
     if (stopping) return stopping
     if (state.phase !== 'recording') return false
-    stopping = finish(reason).then(() => true)
+    stopping = finish(reason).then(() => true).catch(error => {
+      releaseAll(''); publish({ phase: 'partial', saving: false, sessionId, interrupted: 'storage-failure', error: `Local finalization failed: ${error.message}. Committed chunks remain recoverable after reload.` }); return false
+    })
     try { return await stopping }
     finally { stopping = null }
   }
@@ -560,6 +565,7 @@ export function createCallRecorder({ env, limits = LIMITS, now = () => env.perfo
     // must still release their tracks, while captured audio must still drain.
     if (state.phase === 'recording') return stop('disposal')
     if (stopping) return stopping
+    if (state.phase === 'starting') { generation++; releaseAll(''); return Promise.resolve() }
     if (capturePhases.includes(state.phase)) return Promise.resolve()
     generation++
     releaseAll('')

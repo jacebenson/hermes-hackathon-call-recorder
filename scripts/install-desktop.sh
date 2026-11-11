@@ -7,6 +7,6 @@ if [ "$#" -ne 1 ] || [ -z "$1" ]; then
 fi
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 mkdir -p "$1/desktop-plugins/call-recorder"
-cp "$root/desktop/plugin.js" "$1/desktop-plugins/call-recorder/plugin.js"
-cmp "$root/desktop/plugin.js" "$1/desktop-plugins/call-recorder/plugin.js"
+cp "$root/packages/call-recorder/desktop/plugin.js" "$1/desktop-plugins/call-recorder/plugin.js"
+cmp "$root/packages/call-recorder/desktop/plugin.js" "$1/desktop-plugins/call-recorder/plugin.js"
 printf '%s\n' 'Copied desktop artifact only. Enable Call recorder in Hermes plugin settings.'
