@@ -85,7 +85,13 @@ const baseEnv = (overrides = {}) => {
 }
 const build = (env, limits) => {
   FakeRecorder.instances = []
-  return createCallRecorder({ env, limits })
+  let record
+  const storage = {
+    create: async r => { record = structuredClone(r) }, get: async () => record,
+    append: async (id, key, n, blob) => { const t = record.tracks.find(t => t.key === key); t.bytes += blob.size; t.chunks++ },
+    update: async (id, value) => Object.assign(record, value)
+  }
+  return createCallRecorder({ env, storage, limits })
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -172,7 +178,7 @@ const run = async () => {
     assert.equal(c5.state.totalBytes, 3072)
     assert.equal(await c5.stop('user'), true)
     assert.equal(c5.state.phase, 'done')
-    assert.equal(c5.state.files.length, 3, 'two audio files plus timing metadata')
+    assert.equal(c5.state.files.length, 2, 'two audio metadata entries; no full-call Blob assembly')
     const audioFiles = c5.state.files.filter((f) => f.key !== 'timing')
     assert.deepEqual(audioFiles.map((f) => f.key), ['mic', 'call-audio'])
     assert.match(audioFiles[0].filename, /^mic-.*\.webm$/)
@@ -181,7 +187,7 @@ const run = async () => {
     assert.equal(c5.state.timing.videoPersisted, false)
     assert.equal(c5.state.timing.mimeType, 'audio/webm;codecs=opus')
     assert.equal(c5.state.timing.capture.callAudio.separateRecorder, true)
-    assert.equal(c5.state.timing.tracks[1].containerDurationMs, 1250)
+    assert.equal(c5.state.timing.tracks[1].containerDurationMs, null)
     assert.equal(c5.state.saving, false)
     const every = [...c5.streams().micStream?.getTracks?.() || [], ...(env5.__lastCallStream?.getTracks?.() || [])]
     for (const t of every) assert(t.stopped, 'all tracks released on stop')
@@ -248,30 +254,15 @@ const run = async () => {
     assert.equal(c9.state.files.filter((f) => f.key !== 'timing').length, 1)
   })
 
-  // 10. Byte cap auto-stops and preserves what exists.
-  const env10 = baseEnv()
-  const c10 = build(env10, { maxDurationMs: 180000, maxBytes: 1500 })
-  await checkAsync('byte cap stops capture and preserves existing chunks', async () => {
-    await c10.grantMic(); await c10.chooseMicOnly(); await c10.start()
-    FakeRecorder.instances[0].emit(400)
+  // No total byte or duration caps, even when obsolete callers pass limits.
+  const c10 = build(baseEnv(), { maxDurationMs: 10, maxBytes: 1 })
+  await checkAsync('obsolete limits cannot stop incrementally persisted capture', async () => {
+    await c10.grantMic(); c10.chooseMicOnly(); await c10.start()
     FakeRecorder.instances[0].emit(1600)
-    await sleep(40)
-    assert.equal(c10.state.phase, 'partial')
-    assert.match(c10.state.message, /in-memory cap/i)
-    assert(c10.state.files.length >= 2, 'audio plus timing kept')
-    assert(c10.state.files.find((f) => f.key === 'mic').bytes > 0)
-  })
-
-  // 11. Duration cap auto-stops.
-  const env11 = baseEnv()
-  const c11 = build(env11, { maxDurationMs: 120, maxBytes: 24 * 1024 * 1024 })
-  await checkAsync('duration cap stops capture on its own', async () => {
-    await c11.grantMic(); await c11.chooseMicOnly(); await c11.start()
-    FakeRecorder.instances[0].emit(300)
-    await sleep(260)
-    assert.equal(c11.state.phase, 'done')
-    assert.equal(c11.state.files.filter((f) => f.key !== 'timing').length, 1)
-    assert.equal(c11.state.timing.stopReason, 'duration-cap')
+    await sleep(30)
+    assert.equal(c10.state.phase, 'recording')
+    await c10.stop()
+    assert.equal(c10.state.files[0].bytes, 1856)
   })
 
   // 12. Settings changes are refused while capturing.
@@ -309,7 +300,7 @@ const run = async () => {
   env14.MediaRecorder = BrokenRecorder
   let display14
   env14.navigator.mediaDevices.getDisplayMedia = async () => { display14 = streamWith('video', 'audio'); return display14 }
-  const c14b = createCallRecorder({ env: env14 })
+  const c14b = build(env14)
   await checkAsync('recorder construction failure releases all tracks with no files', async () => {
     await c14b.grantMic(); await c14b.grantCallAudio(); await c14b.start()
     assert.equal(c14b.state.phase, 'error')

@@ -1,0 +1,3183 @@
+{
+  "artifact_sha256": "4aebf40ea781e8221b352850b736e9982bd5ac3bfbe78d75312ca5f0d24d80bc",
+  "supersedes": "Prior abandonment evidence used a late same-target suppressor and was timing-dependent. These reruns suppress registration before plugin load only in the explicit abandoned document.",
+  "fixture": "installed runtime-loader SDK; packaged artifact; Chromium fake microphone and injected display only; no real-client acceptance",
+  "active_deletion_runs": [
+    {
+      "checks": [
+        {
+          "name": "title-save refresh does not expose live call as recovered/deletable",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "storage boundary refuses exact active ID and preserves both committed hashes",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "other-tab controller hides and refuses deleting live session",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "both-track capture continues then stops byte-exact and ownership ends",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "confirmed deletion after stop removes target only",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "abandoned reload releases lock and recovers both committed prefixes",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "abandoned session is not forever locked and can be confirmed deleted",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "direct": {
+        "id": "call-20261111-084238-5u0u0j",
+        "error": "This call is active in a recorder. Stop it before deleting.",
+        "before": [
+          {
+            "key": "mic",
+            "bytes": 5578,
+            "hash": "117518c025a7aebd1caa2e76ab6eaaa08b8913cf3d8641718291687a6538d681"
+          },
+          {
+            "key": "call-audio",
+            "bytes": 7938,
+            "hash": "b156efda55cbc8c9b27865b379cc0bf8b5acd0b5c47683e50b9a4bbafa5b716f"
+          }
+        ],
+        "afterPrefix": [
+          {
+            "key": "mic",
+            "bytes": 5578,
+            "hash": "117518c025a7aebd1caa2e76ab6eaaa08b8913cf3d8641718291687a6538d681"
+          },
+          {
+            "key": "call-audio",
+            "bytes": 7938,
+            "hash": "b156efda55cbc8c9b27865b379cc0bf8b5acd0b5c47683e50b9a4bbafa5b716f"
+          }
+        ],
+        "active": true
+      },
+      "peer": {
+        "error": "This call is active in a recorder. Stop it before deleting.",
+        "active": true,
+        "visible": false
+      },
+      "final": {
+        "status": "saved",
+        "active": false,
+        "tracks": [
+          {
+            "key": "mic",
+            "bytes": 28467,
+            "storedHash": "407d876185fc2de53d0164e292a58e22814b4295d73bb15597ad284419b61125",
+            "emittedHash": "407d876185fc2de53d0164e292a58e22814b4295d73bb15597ad284419b61125"
+          },
+          {
+            "key": "call-audio",
+            "bytes": 30827,
+            "storedHash": "cb6f2006986acc9f35e5b7341c23211d8d430c57f9187a0adec232a999989c28",
+            "emittedHash": "cb6f2006986acc9f35e5b7341c23211d8d430c57f9187a0adec232a999989c28"
+          }
+        ],
+        "errors": []
+      },
+      "stale": {
+        "id": "call-20261111-084242-5z5g3y",
+        "tracks": [
+          {
+            "bytes": 5578,
+            "hash": "641a3859f6e0e83e4c643eaaa266cc8cad8ca415b3c820e643351610ec608a70"
+          },
+          {
+            "bytes": 7938,
+            "hash": "d44a077d596011718d10cb0f1c837b5afa83ee8894f2bc2d1a62cb2f55204904"
+          }
+        ]
+      },
+      "recovered": {
+        "status": "recording",
+        "active": false,
+        "hashes": [
+          "641a3859f6e0e83e4c643eaaa266cc8cad8ca415b3c820e643351610ec608a70",
+          "d44a077d596011718d10cb0f1c837b5afa83ee8894f2bc2d1a62cb2f55204904"
+        ]
+      }
+    },
+    {
+      "checks": [
+        {
+          "name": "title-save refresh does not expose live call as recovered/deletable",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "storage boundary refuses exact active ID and preserves both committed hashes",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "other-tab controller hides and refuses deleting live session",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "both-track capture continues then stops byte-exact and ownership ends",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "confirmed deletion after stop removes target only",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "abandoned reload releases lock and recovers both committed prefixes",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "abandoned session is not forever locked and can be confirmed deleted",
+          "ok": true,
+          "detail": ""
+        }
+      ],
+      "direct": {
+        "id": "call-20261111-084247-2t3h61",
+        "error": "This call is active in a recorder. Stop it before deleting.",
+        "before": [
+          {
+            "key": "mic",
+            "bytes": 5578,
+            "hash": "a5649024f28c959f1c7ddde4966afcb6a62e59a435ebc2ddce3ae874878adf69"
+          },
+          {
+            "key": "call-audio",
+            "bytes": 7938,
+            "hash": "f7ceb7f28ae1ef4cce0b4db86de793ac96a8cdcca803ec61de09d4c090fc23b5"
+          }
+        ],
+        "afterPrefix": [
+          {
+            "key": "mic",
+            "bytes": 5578,
+            "hash": "a5649024f28c959f1c7ddde4966afcb6a62e59a435ebc2ddce3ae874878adf69"
+          },
+          {
+            "key": "call-audio",
+            "bytes": 7938,
+            "hash": "f7ceb7f28ae1ef4cce0b4db86de793ac96a8cdcca803ec61de09d4c090fc23b5"
+          }
+        ],
+        "active": true
+      },
+      "peer": {
+        "error": "This call is active in a recorder. Stop it before deleting.",
+        "active": true,
+        "visible": false
+      },
+      "final": {
+        "status": "saved",
+        "active": false,
+        "tracks": [
+          {
+            "key": "mic",
+            "bytes": 28467,
+            "storedHash": "d24119b807c8245b386ffd7017c5a5b826a44573b6a3a662ce3568b5d52ee87d",
+            "emittedHash": "d24119b807c8245b386ffd7017c5a5b826a44573b6a3a662ce3568b5d52ee87d"
+          },
+          {
+            "key": "call-audio",
+            "bytes": 30827,
+            "storedHash": "895ddb540a83959bde7a01da6f3384f912cf3df52d0df81f118c0f9863a10c1f",
+            "emittedHash": "895ddb540a83959bde7a01da6f3384f912cf3df52d0df81f118c0f9863a10c1f"
+          }
+        ],
+        "errors": []
+      },
+      "stale": {
+        "id": "call-20261111-084252-0f3127",
+        "tracks": [
+          {
+            "bytes": 5578,
+            "hash": "75f8f88ba981691d38a50c045b4b65d0c8b1dcfed27737fdd58fe149fba1c277"
+          },
+          {
+            "bytes": 7938,
+            "hash": "1ed935441a5acb5be7e170fe87dd70e44742d9c29e3eb018ca5b2d3d61fb8a67"
+          }
+        ]
+      },
+      "recovered": {
+        "status": "recording",
+        "active": false,
+        "hashes": [
+          "75f8f88ba981691d38a50c045b4b65d0c8b1dcfed27737fdd58fe149fba1c277",
+          "1ed935441a5acb5be7e170fe87dd70e44742d9c29e3eb018ca5b2d3d61fb8a67"
+        ]
+      }
+    }
+  ],
+  "browser_short": {
+    "fixture": "real MediaRecorder and IDB, fake microphone, instrumented 300Hz display audio/canvas; actual SDK runtime loader",
+    "checks": [
+      {
+        "name": "stop-disable releases all acquired tracks after teardown",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "stop-disable saves exactly one call",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "stop-disable terminal chunks stored byte-exact",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "stop-disable releases all tracks and no renderer error",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "stop-unmount releases all acquired tracks after teardown",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "stop-unmount saves exactly one call",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "stop-unmount terminal chunks stored byte-exact",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "stop-unmount releases all tracks and no renderer error",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "active-unmount releases all acquired tracks after teardown",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "active-unmount saves exactly one call",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "active-unmount terminal chunks stored byte-exact",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "active-unmount releases all tracks and no renderer error",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "error-mic saves exactly one call",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "error-mic terminal chunks stored byte-exact",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "error-mic releases all tracks and no renderer error",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "error-mic native inactive error reproduced",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "error-dual saves exactly one call",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "error-dual terminal chunks stored byte-exact",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "error-dual releases all tracks and no renderer error",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "error-dual native inactive error reproduced",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "repeated-stop releases all acquired tracks after teardown",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "repeated-stop saves exactly one call",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "repeated-stop terminal chunks stored byte-exact",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "repeated-stop releases all tracks and no renderer error",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "all persisted track hashes survive reload",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "actual reload recovers committed chunks only, labelled partial",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "quota failure has no unhandled renderer exception",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "quota failure stops capture and preserves committed prefix",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "selected committed audio plays",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "fallback download and chunk-streamed export match persisted track SHA256",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "no backend API requests",
+        "ok": true,
+        "detail": ""
+      }
+    ],
+    "evidence": [
+      {
+        "mode": "stop-disable",
+        "calls": 1,
+        "statuses": [
+          "saved"
+        ],
+        "durations": [
+          1710.800000011921
+        ],
+        "allTracksEnded": true,
+        "errors": [],
+        "recorders": [
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 5423,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 5847,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 11270,
+            "stored": 11270,
+            "emittedHash": "356e7471dc8f7c16acb2f6f86ac78fe376fe07835089644f48c6d197fbde9da9",
+            "storedHash": "356e7471dc8f7c16acb2f6f86ac78fe376fe07835089644f48c6d197fbde9da9"
+          },
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 7938,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 5847,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 13785,
+            "stored": 13785,
+            "emittedHash": "bc9611bc40a99bc9a0af1559711e29733173ba7fa9b160e86c143595d243dbbf",
+            "storedHash": "bc9611bc40a99bc9a0af1559711e29733173ba7fa9b160e86c143595d243dbbf"
+          }
+        ]
+      },
+      {
+        "mode": "stop-unmount",
+        "calls": 1,
+        "statuses": [
+          "saved"
+        ],
+        "durations": [
+          1708.1000000089407
+        ],
+        "allTracksEnded": true,
+        "errors": [],
+        "recorders": [
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 5578,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 5847,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 11425,
+            "stored": 11425,
+            "emittedHash": "6941c32ec12fa7dba22b339647bf9378e3d17d06c5717c66a80dec938d928211",
+            "storedHash": "6941c32ec12fa7dba22b339647bf9378e3d17d06c5717c66a80dec938d928211"
+          },
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 7938,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 5847,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 13785,
+            "stored": 13785,
+            "emittedHash": "8c916ebf8cb000453b14a205a93505cbfa9f430f25779271fadeda2b4ed07c71",
+            "storedHash": "8c916ebf8cb000453b14a205a93505cbfa9f430f25779271fadeda2b4ed07c71"
+          }
+        ]
+      },
+      {
+        "mode": "active-unmount",
+        "calls": 1,
+        "statuses": [
+          "saved"
+        ],
+        "durations": [
+          1707.7999999970198
+        ],
+        "allTracksEnded": true,
+        "errors": [],
+        "recorders": [
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 5578,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 5847,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 11425,
+            "stored": 11425,
+            "emittedHash": "9afb0a975970fa81753c57731359fafeab5111a032234ba33771439d059ee414",
+            "storedHash": "9afb0a975970fa81753c57731359fafeab5111a032234ba33771439d059ee414"
+          },
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 7938,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 5847,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 13785,
+            "stored": 13785,
+            "emittedHash": "ddc1ae288f5fed9be48b9966ad0e4f5952f0fbdbca70e6aef8376844983ac5d5",
+            "storedHash": "ddc1ae288f5fed9be48b9966ad0e4f5952f0fbdbca70e6aef8376844983ac5d5"
+          }
+        ]
+      },
+      {
+        "mode": "error-mic",
+        "calls": 1,
+        "statuses": [
+          "partial"
+        ],
+        "durations": [
+          1733.6000000089407
+        ],
+        "allTracksEnded": true,
+        "errors": [],
+        "recorders": [
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 5578,
+                "state": "recording"
+              },
+              {
+                "event": "error",
+                "name": "InvalidModificationError",
+                "state": "inactive"
+              },
+              {
+                "event": "data",
+                "bytes": 5847,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 11425,
+            "stored": 11425,
+            "emittedHash": "c0927bd311580c002a1a0d39be7f945f607edb40eea54e02ae43bdd62f129adf",
+            "storedHash": "c0927bd311580c002a1a0d39be7f945f607edb40eea54e02ae43bdd62f129adf"
+          }
+        ]
+      },
+      {
+        "mode": "error-dual",
+        "calls": 1,
+        "statuses": [
+          "partial"
+        ],
+        "durations": [
+          1708.7999999970198
+        ],
+        "allTracksEnded": true,
+        "errors": [],
+        "recorders": [
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 5578,
+                "state": "recording"
+              },
+              {
+                "event": "error",
+                "name": "InvalidModificationError",
+                "state": "inactive"
+              },
+              {
+                "event": "data",
+                "bytes": 5847,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 11425,
+            "stored": 11425,
+            "emittedHash": "8475285821e7961ac30ec7574933a50f91645803391418a20a74918c9fd0ccd5",
+            "storedHash": "8475285821e7961ac30ec7574933a50f91645803391418a20a74918c9fd0ccd5"
+          },
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 7938,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 5847,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 13785,
+            "stored": 13785,
+            "emittedHash": "30625b5eebe1e0530ed7fe260fb566cb9f03f7a87932a2bf1de788ace15b7da6",
+            "storedHash": "30625b5eebe1e0530ed7fe260fb566cb9f03f7a87932a2bf1de788ace15b7da6"
+          }
+        ]
+      },
+      {
+        "mode": "repeated-stop",
+        "calls": 1,
+        "statuses": [
+          "saved"
+        ],
+        "durations": [
+          1707.6000000089407
+        ],
+        "allTracksEnded": true,
+        "errors": [],
+        "recorders": [
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 5578,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 5847,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 11425,
+            "stored": 11425,
+            "emittedHash": "7873805d5fb03a6d80df3423686b15e4bf3052617f204e3632c46bb867d3c83d",
+            "storedHash": "7873805d5fb03a6d80df3423686b15e4bf3052617f204e3632c46bb867d3c83d"
+          },
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 7938,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 5847,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 13785,
+            "stored": 13785,
+            "emittedHash": "b2a01486798040e9cc83ef72082d0e1fb8b4935e1f3fcf60b58ba877246d40ba",
+            "storedHash": "b2a01486798040e9cc83ef72082d0e1fb8b4935e1f3fcf60b58ba877246d40ba"
+          }
+        ]
+      }
+    ],
+    "exportProof": {
+      "stored": "c7bf5c3fe5a193295ef6dd809caf5d91225bdd8e3018a3b5af8f15fa9c758f37",
+      "download": "c7bf5c3fe5a193295ef6dd809caf5d91225bdd8e3018a3b5af8f15fa9c758f37",
+      "streamed": "c7bf5c3fe5a193295ef6dd809caf5d91225bdd8e3018a3b5af8f15fa9c758f37"
+    },
+    "interrupted": {
+      "id": "call-20261111-084310-102v4n",
+      "bytes": 13856,
+      "hash": "a1bc410fe31e5014a7430386c4ff1970a395ff240ef790652d25d7d28dbd6d3f"
+    },
+    "recovered": {
+      "id": "call-20261111-084310-102v4n",
+      "status": "recording",
+      "active": false,
+      "bytes": 13856,
+      "hash": "a1bc410fe31e5014a7430386c4ff1970a395ff240ef790652d25d7d28dbd6d3f",
+      "prefixHash": "a1bc410fe31e5014a7430386c4ff1970a395ff240ef790652d25d7d28dbd6d3f"
+    }
+  },
+  "browser_full": {
+    "fixture": "real MediaRecorder and IDB, fake microphone, instrumented 300Hz display audio/canvas; actual SDK runtime loader",
+    "checks": [
+      {
+        "name": "stop-disable releases all acquired tracks after teardown",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "stop-disable saves exactly one call",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "stop-disable terminal chunks stored byte-exact",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "stop-disable releases all tracks and no renderer error",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "stop-unmount releases all acquired tracks after teardown",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "stop-unmount saves exactly one call",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "stop-unmount terminal chunks stored byte-exact",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "stop-unmount releases all tracks and no renderer error",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "active-unmount releases all acquired tracks after teardown",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "active-unmount saves exactly one call",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "active-unmount terminal chunks stored byte-exact",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "active-unmount releases all tracks and no renderer error",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "error-mic saves exactly one call",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "error-mic terminal chunks stored byte-exact",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "error-mic releases all tracks and no renderer error",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "error-mic native inactive error reproduced",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "error-dual saves exactly one call",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "error-dual terminal chunks stored byte-exact",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "error-dual releases all tracks and no renderer error",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "error-dual native inactive error reproduced",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "repeated-stop releases all acquired tracks after teardown",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "repeated-stop saves exactly one call",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "repeated-stop terminal chunks stored byte-exact",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "repeated-stop releases all tracks and no renderer error",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "long releases all acquired tracks after teardown",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "long saves exactly one call",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "actual elapsed capture exceeds former three-minute cap",
+        "ok": true,
+        "detail": "[183113.29999999702]"
+      },
+      {
+        "name": "long terminal chunks stored byte-exact",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "long releases all tracks and no renderer error",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "all persisted track hashes survive reload",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "actual reload recovers committed chunks only, labelled partial",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "quota failure has no unhandled renderer exception",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "quota failure stops capture and preserves committed prefix",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "selected committed audio plays",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "fallback download and chunk-streamed export match persisted track SHA256",
+        "ok": true,
+        "detail": ""
+      },
+      {
+        "name": "no backend API requests",
+        "ok": true,
+        "detail": ""
+      }
+    ],
+    "evidence": [
+      {
+        "mode": "stop-disable",
+        "calls": 1,
+        "statuses": [
+          "saved"
+        ],
+        "durations": [
+          1710.0999999940395
+        ],
+        "allTracksEnded": true,
+        "errors": [],
+        "recorders": [
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 5423,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 5847,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 11270,
+            "stored": 11270,
+            "emittedHash": "fefe2a86fda88d617e42d922e393e3e0a007431c28a096f37f9ded693d774c88",
+            "storedHash": "fefe2a86fda88d617e42d922e393e3e0a007431c28a096f37f9ded693d774c88"
+          },
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 7938,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 5847,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 13785,
+            "stored": 13785,
+            "emittedHash": "2721645a4b1d6c792cf3de38a98b3fc02f4879c5f43da79d56ffc694f1298170",
+            "storedHash": "2721645a4b1d6c792cf3de38a98b3fc02f4879c5f43da79d56ffc694f1298170"
+          }
+        ]
+      },
+      {
+        "mode": "stop-unmount",
+        "calls": 1,
+        "statuses": [
+          "saved"
+        ],
+        "durations": [
+          1708.6000000089407
+        ],
+        "allTracksEnded": true,
+        "errors": [],
+        "recorders": [
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 5578,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 5847,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 11425,
+            "stored": 11425,
+            "emittedHash": "75c72a81112111c6e8af9dfb938397f6d3ed7bda19733bf04349b06ae850f8dc",
+            "storedHash": "75c72a81112111c6e8af9dfb938397f6d3ed7bda19733bf04349b06ae850f8dc"
+          },
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 7938,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 5847,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 13785,
+            "stored": 13785,
+            "emittedHash": "f0759f83b0075cfccd88376c1a6a310530acd0ffb4d979e52ab81c17d902baa4",
+            "storedHash": "f0759f83b0075cfccd88376c1a6a310530acd0ffb4d979e52ab81c17d902baa4"
+          }
+        ]
+      },
+      {
+        "mode": "active-unmount",
+        "calls": 1,
+        "statuses": [
+          "saved"
+        ],
+        "durations": [
+          1707.5
+        ],
+        "allTracksEnded": true,
+        "errors": [],
+        "recorders": [
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 5578,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 5847,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 11425,
+            "stored": 11425,
+            "emittedHash": "b899b1a3b01887a0829efe1f3fed2f27b4ac9437fa5929667b45cdadb1647a50",
+            "storedHash": "b899b1a3b01887a0829efe1f3fed2f27b4ac9437fa5929667b45cdadb1647a50"
+          },
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 7938,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 5847,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 13785,
+            "stored": 13785,
+            "emittedHash": "a197ef5b96c5c32dc1459eb19672e82f4604dc6010eaedcabe7a38339aedb62c",
+            "storedHash": "a197ef5b96c5c32dc1459eb19672e82f4604dc6010eaedcabe7a38339aedb62c"
+          }
+        ]
+      },
+      {
+        "mode": "error-mic",
+        "calls": 1,
+        "statuses": [
+          "partial"
+        ],
+        "durations": [
+          1706.5
+        ],
+        "allTracksEnded": true,
+        "errors": [],
+        "recorders": [
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 5578,
+                "state": "recording"
+              },
+              {
+                "event": "error",
+                "name": "InvalidModificationError",
+                "state": "inactive"
+              },
+              {
+                "event": "data",
+                "bytes": 5847,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 11425,
+            "stored": 11425,
+            "emittedHash": "b7d121310dffc5165ac9ae473690f1f34bad47af24b7893d772e7d746797328b",
+            "storedHash": "b7d121310dffc5165ac9ae473690f1f34bad47af24b7893d772e7d746797328b"
+          }
+        ]
+      },
+      {
+        "mode": "error-dual",
+        "calls": 1,
+        "statuses": [
+          "partial"
+        ],
+        "durations": [
+          1708.9000000059605
+        ],
+        "allTracksEnded": true,
+        "errors": [],
+        "recorders": [
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 5578,
+                "state": "recording"
+              },
+              {
+                "event": "error",
+                "name": "InvalidModificationError",
+                "state": "inactive"
+              },
+              {
+                "event": "data",
+                "bytes": 5847,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 11425,
+            "stored": 11425,
+            "emittedHash": "fcad9472c50064d959ef783bd4e46b7b2f7349b3455013ad0382cfe2587d731b",
+            "storedHash": "fcad9472c50064d959ef783bd4e46b7b2f7349b3455013ad0382cfe2587d731b"
+          },
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 7938,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 5847,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 13785,
+            "stored": 13785,
+            "emittedHash": "48cc2978885b1926c195570e484ccfdb959852caaff79dc3fd6d9e395e249ef0",
+            "storedHash": "48cc2978885b1926c195570e484ccfdb959852caaff79dc3fd6d9e395e249ef0"
+          }
+        ]
+      },
+      {
+        "mode": "repeated-stop",
+        "calls": 1,
+        "statuses": [
+          "saved"
+        ],
+        "durations": [
+          1712.5
+        ],
+        "allTracksEnded": true,
+        "errors": [],
+        "recorders": [
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 5578,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 5847,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 11425,
+            "stored": 11425,
+            "emittedHash": "847ab27da7aa2b920ec9267a6b9ea12224f6a941f4843e729729ca6e6942e39f",
+            "storedHash": "847ab27da7aa2b920ec9267a6b9ea12224f6a941f4843e729729ca6e6942e39f"
+          },
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 7938,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 5847,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 13785,
+            "stored": 13785,
+            "emittedHash": "c1383fd7188afc8b2f62ddb7a7fdee3ce6abf54d07475282ea5f449042d9e2c0",
+            "storedHash": "c1383fd7188afc8b2f62ddb7a7fdee3ce6abf54d07475282ea5f449042d9e2c0"
+          }
+        ]
+      },
+      {
+        "mode": "long",
+        "calls": 1,
+        "statuses": [
+          "saved"
+        ],
+        "durations": [
+          183113.29999999702
+        ],
+        "allTracksEnded": true,
+        "errors": [],
+        "recorders": [
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 5578,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 4390,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 1483566,
+            "stored": 1483566,
+            "emittedHash": "360b11c6a0617541de6ed118f6ccbd11a877198ea8dfd9179233ebdf18067a05",
+            "storedHash": "360b11c6a0617541de6ed118f6ccbd11a877198ea8dfd9179233ebdf18067a05"
+          },
+          {
+            "events": [
+              {
+                "event": "data",
+                "bytes": 7938,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8278,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 8279,
+                "state": "recording"
+              },
+              {
+                "event": "data",
+                "bytes": 4390,
+                "state": "inactive"
+              },
+              {
+                "event": "stop",
+                "state": "inactive"
+              }
+            ],
+            "emitted": 1485926,
+            "stored": 1485926,
+            "emittedHash": "a73577ffa2be88e2295a39b1f5b9a7f94788fa256736ae71f75fbc3424b1a825",
+            "storedHash": "a73577ffa2be88e2295a39b1f5b9a7f94788fa256736ae71f75fbc3424b1a825"
+          }
+        ]
+      }
+    ],
+    "exportProof": {
+      "stored": "e4333407f24234ec68eb03fbf2850c46b6837ed4523eb0f812e4265cea43bff6",
+      "download": "e4333407f24234ec68eb03fbf2850c46b6837ed4523eb0f812e4265cea43bff6",
+      "streamed": "e4333407f24234ec68eb03fbf2850c46b6837ed4523eb0f812e4265cea43bff6"
+    },
+    "interrupted": {
+      "id": "call-20261111-084643-2g0e6l",
+      "bytes": 13856,
+      "hash": "321ddfbb5a0588f3cad5f7937fdc8045e01957e6f72a91ec22ced0c3302b2259"
+    },
+    "recovered": {
+      "id": "call-20261111-084643-2g0e6l",
+      "status": "recording",
+      "active": false,
+      "bytes": 13856,
+      "hash": "321ddfbb5a0588f3cad5f7937fdc8045e01957e6f72a91ec22ced0c3302b2259",
+      "prefixHash": "321ddfbb5a0588f3cad5f7937fdc8045e01957e6f72a91ec22ced0c3302b2259"
+    }
+  },
+  "commands": [
+    {
+      "command": [
+        "node",
+        "--check",
+        "tests/active-deletion.browser.mjs"
+      ],
+      "exit": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "tests/chunked.browser.mjs"
+      ],
+      "exit": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "desktop/plugin.js"
+      ],
+      "exit": 0
+    },
+    {
+      "command": [
+        "node",
+        "--test",
+        "tests/local/chunked.test.mjs"
+      ],
+      "exit": 0
+    },
+    {
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-p",
+        "test_distribution.py"
+      ],
+      "exit": 0
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit": 0
+    }
+  ]
+}

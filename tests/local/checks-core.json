@@ -1,7 +1,7 @@
 {
   "suite": "recorder-core fakes",
-  "total": 18,
-  "passed": 18,
+  "total": 17,
+  "passed": 17,
   "failed": 0,
   "results": [
     {
@@ -41,11 +41,7 @@
       "ok": true
     },
     {
-      "name": "byte cap stops capture and preserves existing chunks",
-      "ok": true
-    },
-    {
-      "name": "duration cap stops capture on its own",
+      "name": "obsolete limits cannot stop incrementally persisted capture",
       "ok": true
     },
     {

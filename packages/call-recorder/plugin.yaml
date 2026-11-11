@@ -1,0 +1,8 @@
+name: call-recorder
+version: "2.0.0"
+requires_hermes: ">=0.23.0"
+license: MIT
+homepage: https://github.com/jacebenson/hermes-hackathon-call-recorder
+tags: [recording, audio, meetings, client-local]
+description: Client-local microphone and shared-call audio saved in this browser.
+  Separate audio files and timing in IndexedDB. No upload or model calls.

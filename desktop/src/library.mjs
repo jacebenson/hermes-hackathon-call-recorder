@@ -91,7 +91,7 @@ export function buildCallRecord(result, { id, title = '', origin = '', createdAt
 // Metadata export built from a stored record, not from live capture state.
 export function metadataFor(record) {
   return {
-    schema: RECORD_SCHEMA,
+    schema: record.schema || RECORD_SCHEMA,
     id: record.id,
     title: record.title,
     createdAtISO: record.createdAtISO,

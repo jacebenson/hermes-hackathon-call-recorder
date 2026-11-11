@@ -1,155 +1,63 @@
-# Hermes Call recorder — client-local v2
+# Hermes Call recorder v2
 
-A native Hermes SDK pane for separate **Microphone** and **Call audio** recordings.
-Capture, playback and the saved-call library run on the **client device**. There is
-no recorder backend request, automatic upload, transcription or model call.
+Record this client's microphone and explicitly shared call audio as separate local tracks. No backend request, upload, transcription or model call.
 
 ## Install
 
-From this checkout, copy the complete, already-built Desktop artifact:
+This branch is a draft, not a deployed release. The v2 distribution is `packages/call-recorder`, not the repository root. In Hermes's plugin installer use the reviewed commit and this source:
+
+```
+jacebenson/hermes-hackathon-call-recorder#packages/call-recorder
+```
+
+A catalog revision must set `subdir: packages/call-recorder` as well as its reviewed SHA. The root intentionally retains the legacy Python backend and is still detected as a mixed package. Do not install the root for v2. Alternatively, from a reviewed checkout:
 
 ```sh
 sh scripts/install-desktop.sh /explicit/path/to/your/hermes-home
 ```
 
-This copies only `desktop/plugin.js` to
-`desktop-plugins/call-recorder/plugin.js`. No Python backend, package installation,
-machine/source settings or helper scripts are required. Enable **Call recorder**
-in Hermes's plugin settings (the plugin is opt-in). Do not install both a disk copy
-and a unified-package copy with the same identity.
-
-The unified package also works through `hermes plugins install
-jacebenson/hermes-hackathon-call-recorder` **after this release is merged**. It ships
-the same generated `desktop/plugin.js`; the retained Python half is not needed by
-the new UI. This branch is a draft, not a deployed release.
+This copies only `packages/call-recorder/desktop/plugin.js` into `desktop-plugins/call-recorder/plugin.js`. No Python dependencies, backend routes, settings or helpers ship in the distribution. It does not remove an existing legacy installation. Resolve duplicate plugin identities before enabling a new copy. The plugin is opt-in.
 
 ## Record
 
-Obtain consent from participants first.
+Obtain participant consent first.
 
-1. Open the **Call recorder** pane. The compact composer launcher only opens it;
-   it never starts or stops capture.
-2. **Grant microphone**, then **Grant call audio**. Choose the playing tab/window
-   in the browser picker and select **Share audio**. Actual input labels and dBFS
-   meters show the returned sources, not inferred remote-machine devices.
-3. If the share contains no audio, all its tracks are released. Share again or
-   explicitly choose **Use microphone only**. There is no silent downgrade.
-4. Use the single **Record / Stop** control and timer. Screen video is requested
-   only to sustain sharing and is **never attached to a recorder or persisted**.
-5. Stop saves both separate audio Blobs and shared timing/provenance as **one call
-   record in one IndexedDB transaction**. The UI explicitly shows Saving, Saved,
-   or Not saved. Rename, play/download each track, export metadata, or delete one
-   call using a named confirmation followed by **Delete permanently**.
+1. Open Call recorder. Grant microphone, then Grant call audio. Select a playing tab or window and enable Share audio in the picker.
+2. A share without audio is released. Share again or explicitly choose Use microphone only. Video sustains sharing where needed but is never recorded.
+3. Record, then Stop. Wait for Saved before leaving.
+4. Rename a call, load a selected track for playback/download, export metadata or confirm deletion of one call.
 
-Capture retains the proven **3-minute / 24 MiB in-memory caps**. No muxing, mixing,
-concatenation, drift correction or synchronized-container claims. Metadata labels
-capture windows and recorder start/stop offsets; decoded duration is unmeasured
-unless actually available. WebM players may show unknown/zero length initially.
+There is no three-minute or total 24 MiB cap. One-second MediaRecorder timeslices commit incrementally to IndexedDB by call, track and sequence. At most 8 MiB or 16 chunks can await writes. A stalled writer, quota failure or oversized browser timeslice stops capture visibly. Committed chunks remain available, but uncommitted audio and the encoder tail may be missing. Browser encoders can internally buffer beyond our pending-write bound.
 
-## Local storage and privacy
+Stop awaits terminal recorder events and every queued write, not a fixed sleep. Broken encoders have a five-second deadline and yield Partial, never Saved. After reload, unfinished sessions appear as Recovered partial with their committed chunks. This does not resume recording or recover a missing tail.
 
-- IndexedDB is specific to the **Hermes origin and browser profile**, not its
-  connected machine, chat profile, or account. Switching backend/profile does not
-  upload, transfer or rebind recordings. The library is not partitioned by backend.
-- Calls may be evicted or cleared with site data. Download backups. Storage
-  estimates and persistent-storage requests run only when explicitly clicked;
-  persistent storage is a browser decision, not a durability guarantee.
-- Quota/write failure leaves no partial call record and keeps immediate audio and
-  timing downloads in the mounted pane, with Retry save. Download before closing;
-  unsaved in-memory audio is not durable.
-- Unmounting the pane or disabling the plugin releases microphone, shared
-  audio/video and level-analysis contexts immediately. Late permission responses
-  are released too. An active recording is stopped and its received audio is
-  finalized into the local library. An already requested Stop still drains and
-  saves after the pane disappears. Object URLs are released after finalization
-  and the save attempt. Already saved calls are not deleted.
-- Finalization waits for each recorder's actual terminal stop event, including
-  final data emitted after an inactive-state encoder error. A broken encoder has
-  a 5-second drain deadline. Received chunks remain exportable, with an incomplete
-  error and `timing.finalizationComplete: false`; missing audio cannot be recovered.
-- Hard tab/window closure, navigation or browser/process destruction cannot wait
-  for asynchronous encoder events or IndexedDB. Unload releases tracks and makes
-  a best-effort save only while the page remains alive. Stop and wait for Saved
-  before leaving. If storage fails after unmount/disable, no mounted retry/export
-  UI remains and unsaved audio is not durable. Export before leaving on failure.
-- **Prototype recordings at localhost:8817 do not follow into Hermes's origin.**
-  Export both audio files and metadata there **before switching**. No migration,
-  auto-copy, browser-profile access or legacy filesystem import is performed.
+## Storage and privacy
 
-## Compatibility gate and limits
+- Calls belong to this origin and browser profile, not the connected backend, Hermes profile or account. Native Electron and browser libraries are separate. No SSH, uploads, backend requests, transcription or model calls occur in v2.
+- IndexedDB can be evicted or cleared. Download portable backups. Storage estimates and persistence requests require a click; denial is shown. Persistent storage cannot prevent explicit deletion or hardware failure.
+- Listing/recovery uses metadata cursors, never every audio Blob. Stop does not assemble full tracks. **Playback and fallback downloads assemble one selected track in memory on demand.** For long calls use Export track to file where File System Access is available. That writes one indexed chunk at a time. The actual native file dialog remains a live acceptance item.
+- Hard reload or process destruction cannot await encoder/IDB completion. Only committed chunks are recoverable. Partial exports may not decode in every player. Stop and wait for Saved before leaving.
+- Timing records source labels and shared offsets, not sample synchronization, mixing, muxing or drift correction. Container duration is unmeasured and WebM can show unknown length. Recovered duration reflects the last committed chunk, not a fabricated final duration.
+- The previous `call-recorder-local-library` database and legacy filesystem recordings remain untouched. Export v1 calls with the previous version before switching. No automatic scan/import occurs. Prototype `localhost:8817` recordings stay at that origin too.
 
-The production runtime loader accepts a **single plain ESM file**, with only
-`@hermes/plugin-sdk`, `react` and `react/jsx-runtime` imports. `desktop/src/` contains
-maintainable pure modules and the native React/SDK UI. The shipped artifact bundles
-only our modules; the host provides genuine Button/Input/Badge components and
-React. No iframe, private import, preview DOM access or parent-window workaround.
+## Compatibility
 
-**Browser Hermes webapp:** HTTPS or loopback secure context, MediaRecorder,
-getUserMedia, getDisplayMedia with an audio-capable share, IndexedDB and browser
-permission are required. A browser may offer tab audio but not system/window audio.
-A share with no audio is rejected; use the explicit microphone-only path if needed.
+Browser Hermes requires HTTPS or loopback, MediaRecorder, IndexedDB, microphone permission and an audio-capable share. Audio availability depends on browser, OS and source. Firefox, Safari, Windows and mobile remain unverified.
 
-**Native Electron is not universally supported or verified.** The inspected host
-`electron/main.ts:6741` installs microphone/camera permission handlers but has no
-`setDisplayMediaRequestHandler`. Its media predicate permits audio/video capture,
-not unknown display-capture permissions. The plugin cannot install a native screen
-picker through the public SDK. A host without the display-media handler may reject
-Grant call audio even when the method exists. No host-core patch is included.
-Microphone-only is an explicit fallback, not proof of Electron shared audio.
-Actual Electron execution and real screen/tab audio remain unverified in this PR.
-The prior beast-1 manual prototype check is not evidence for the packaged plugin's
-native Electron compatibility. Firefox, Safari, Windows and mobile are unverified.
+Native Electron shared audio is **not verified**. A previously inspected host had microphone permission handling but no `setDisplayMediaRequestHandler`. The plugin cannot add a native share picker through the SDK. Microphone-only is an explicit fallback, not proof of shared audio. Both actual browser Hermes and locally installed Electron on beast-1 require the [live acceptance recipe](docs/chunked-v2-verification.md). Operator SSH is blocked by host-key verification. No bypass, live installation, restart or microphone manipulation was performed.
 
-## Legacy behavior change
+## Build and test
 
-All Python capture/transcription/API files and existing recording paths remain.
-The new UI does not call any of them. Importing `dashboard/plugin_api.py` no longer
-starts `ensure_watcher()`: updating/loading the package must not initiate hidden
-legacy capture, helper installation or SSH polling. `__init__.register()` is inert.
-An operator deliberately calling the old `/start` API can still start legacy
-capture and its watcher, with its old settings/side effects. This release removes
-the old mandatory backend settings form and old transcript/notes/remote controls
-from the Desktop UI. It neither deletes nor migrates legacy recordings.
-
-## Build and verification (no installs)
-
-Use an existing Hermes workspace containing esbuild and its dependencies:
+Use an existing Hermes SDK workspace with esbuild. No dependency installation is needed by the distribution.
 
 ```sh
-export HERMES_DESKTOP=/path/to/hermes-workspace/apps/desktop
-export HERMES_CSS_DIR=/path/to/built/desktop/dist-webapp/assets
-node scripts/build-desktop.mjs
-node --check desktop/plugin.js
-node tests/desktop.test.mjs
-node tests/browser-capture.test.mjs
-python -m unittest discover -s tests
-hermes plugins validate . --json
-node tests/serve-sdk.mjs  # loopback :4197, separate terminal
-node tests/plugin.browser.mjs
-node tests/finalization.browser.mjs
-# PROOF_CHROME can select an existing Chromium binary
-# TMPDIR must be writable; tests create/discard isolated browser profiles there.
-git diff --check
+HERMES_DESKTOP=/path/to/hermes/apps/desktop node scripts/build-desktop.mjs
+node --test tests/local/chunked.test.mjs
+node tests/local/core.test.mjs
+node tests/local/library.test.mjs
+hermes plugins validate packages/call-recorder
 ```
 
-`tests/serve-sdk.mjs` uses the actual installed production loader's import rewrite,
-blob-module evaluation, registration/context, SDK React components, ThemeProvider
-and production CSS. The unrelated catalog artwork glob is an empty fixture; there
-is no backend. It does not load a real Hermes profile or install the plugin live.
-`tests/plugin.browser.mjs` uses real MediaRecorder and IndexedDB, a Chromium fake
-microphone, and **instrumented** 300 Hz WebAudio + canvas for display-share
-provenance. It proves handling of shared audio/video, not a real OS share picker.
-Browser evidence and screenshots: [docs/evidence](docs/evidence). The follow-up
-[finalization report](docs/finalization-verification.md) records before/after
-failures, byte-exact terminal-chunk checks and hard-unload limits.
-
-The replaced v1 UI assertions concerned upload, remote-machine selection and live
-transcripts that are intentionally absent now. Backend security/path-confinement
-suites remain. The v2 core and real packaged-UI suites cover refusal/no silent
-fallback, late grants, scoped delete, atomic quota failure, teardown, caps and no
-backend requests instead.
-
-Independent review by Holly is required after delivery; do not merge or deploy
-based only on these automated checks.
+`desktop/src` is maintained source. Both generated artifacts are identical self-contained ESM with only SDK/React host imports. See [verification and remaining gates](docs/chunked-v2-verification.md) for the isolated production-loader browser fixture, legacy Python results and evidence boundaries. Historical evidence documents describe older revisions, not this release or beast-1 deployment. Independent Holly review is required before catalog pin/artwork/ready changes.
 
 MIT. See [LICENSE](LICENSE).
