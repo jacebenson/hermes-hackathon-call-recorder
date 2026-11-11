@@ -20,7 +20,12 @@ export function createController(env = window) {
   const emit = () => { if (!disposed) for (const fn of listeners) fn() }
   const core = createCallRecorder({ env, storage: backend })
   const refresh = async () => {
-    ui.calls = (await backend.list()).map(r => r.status === 'recording' ? { ...r, status: 'recovered', interrupted: 'Interrupted session. Only committed chunks recovered; encoder tail may be missing.' } : r)
+    const rows = await backend.list()
+    const visible = await Promise.all(rows.map(async r => {
+      if (await backend.isActive(r.id)) return null
+      return r.status === 'recording' ? { ...r, status: 'recovered', interrupted: 'Interrupted session. Only committed chunks recovered; encoder tail may be missing.' } : r
+    }))
+    ui.calls = visible.filter(Boolean)
     emit()
   }
   const unsubscribe = core.subscribe(state => {
@@ -136,7 +141,7 @@ export function RecorderPane({ controller: c, onUnmount }) {
       h('output', { 'aria-label': 'Recording timer', style: { fontVariantNumeric: 'tabular-nums' } }, fmt(s.elapsedMs)),
       action('Release / reset inputs', () => { c.core.reset(); u.saveState = 'none'; u.pending = null; update(n => n + 1) }, { disabled: busy || recording || u.saveState === 'failed' })),
     h('p', { role: s.error ? 'alert' : 'status', style: note }, s.error || s.message),
-    u.saveState !== 'none' && h('p', { role: 'status', 'data-save-state': u.saveState }, u.saveState === 'saving' ? 'Committing final chunks…' : u.saveState === 'recording' ? 'Recording; chunks committing locally.' : u.saveState === 'saved' ? 'Saved in this browser.' : `Partial, not fully saved. ${u.saveError}. Committed chunks remain in the library.`),
+    u.saveState !== 'none' && h('p', { role: 'status', 'data-save-state': u.saveState }, u.saveState === 'saving' ? 'Committing final chunks…' : u.saveState === 'recording' ? 'Recording; chunks committing locally.' : u.saveState === 'saved' ? 'Saved in this browser.' : `Partial, not fully saved. ${u.saveError}. Reload to inspect any remaining committed chunks.`),
     h('section', { style: box }, h('strong', null, 'This browser’s saved calls'),
       h('p', { style: note }, 'Playback and fallback downloads assemble one selected track in memory. For long calls use Export track to file where supported, which writes one chunk at a time. Legacy v1 recordings remain untouched in their original database; export with the previous version. IndexedDB belongs to this origin and browser profile, not the connected machine or Hermes profile. It can be evicted or cleared. Download a backup. Calls from localhost:8817 do not move here: export there before switching.'),
       action('Estimate storage', async () => { try { const v = await navigator.storage.estimate(); setStorage(`Origin usage ${v.usage} / quota ${v.quota} bytes`) } catch (e) { setStorage(e.message) } }),

@@ -338,8 +338,8 @@ export function createCallRecorder({ env, storage, limits = LIMITS, now = () => 
     try {
       await storage.create({ id: sessionId, schema: 'call-library-record/2', title: 'Untitled call', capturedAtISO: sessionStartISO, createdAtISO: sessionStartISO, status: 'recording', micOnly: !wantsCall, tracks: [trackInfo('mic', 'Microphone', state.mic.label), ...(wantsCall ? [trackInfo('call-audio', 'Call audio', state.call.label)] : [])], provenance: { origin: env.location?.origin || '', storage: 'IndexedDB chunks', backend: 'none', videoPersisted: false }, timing: null })
     } catch (e) { releaseAll(''); publish({ phase: 'error', error: `Local storage unavailable: ${e.message}` }); return false }
-    writer = createChunkWriter({ store: storage, id: sessionId, onFailure: e => { publish({ error: `Local write failed: ${e.name}: ${e.message}` }); failIfCurrent('Local storage failed. Capture stopped; committed chunks are preserved, but the tail may be missing.') } })
-    if (disposed || current !== generation) { releaseAll(''); await storage.update(sessionId, { status: 'partial', interrupted: 'start-cancelled' }); return false }
+    writer = createChunkWriter({ store: storage, id: sessionId, onFailure: e => { publish({ error: `Local write failed: ${e.name}: ${e.message}` }); failIfCurrent('Local storage failed. Capture stopped. Reload to inspect any remaining local data; the tail may be missing.') } })
+    if (disposed || current !== generation) { releaseAll(''); try { await storage.update(sessionId, { status: 'partial', interrupted: 'start-cancelled' }) } finally { await storage.endSession?.(sessionId) }; return false }
     try {
       micRecorder.start(1000)
       startedAt.mic = now() - sessionStartMs
@@ -351,6 +351,7 @@ export function createCallRecorder({ env, storage, limits = LIMITS, now = () => 
       publish({ phase: 'error', error: `Recording could not start: ${error?.message || error}. All acquired inputs were released.`, saving: false })
       releaseAll('')
       generation++
+      await storage.endSession?.(sessionId)
       return false
     }
 
@@ -411,6 +412,7 @@ export function createCallRecorder({ env, storage, limits = LIMITS, now = () => 
     if (!recorder) return null
     const mime = recorder.mimeType || mimeFallback
     const saved = await storage.get(sessionId)
+    if (!saved) throw new Error('Session is missing. Local recording data is unavailable; recovery cannot be promised.')
     const track = saved.tracks.find(t => t.key === key)
     if (!track?.bytes) return null
     const filename = `${key}-${clockStamp(new Date(sessionStartISO || Date.now()))}.${extFor(mime)}`
@@ -465,7 +467,7 @@ export function createCallRecorder({ env, storage, limits = LIMITS, now = () => 
     if (current !== generation) return
     publish({ phase: 'finalizing' })
     const writeFailure = await writer.drain()
-    if (writeFailure) publish({ interrupted: 'storage-failure', error: `Local write failed: ${writeFailure.message}. Committed chunks remain recoverable; the tail may be missing.` })
+    if (writeFailure) publish({ interrupted: 'storage-failure', error: `Local write failed: ${writeFailure.message}. Reload to inspect any remaining committed chunks; the tail may be missing.` })
     const mime = mics?.mimeType || calls?.mimeType || ''
     const files = []
     const micFile = await finalizeRecorder(mics, null, 'mic', 'Microphone', 'getUserMedia audio track', mime, 'mic')
@@ -507,7 +509,8 @@ export function createCallRecorder({ env, storage, limits = LIMITS, now = () => 
     }
     const partial = !!state.interrupted || !!writeFailure || files.length !== (wantsCall ? 2 : 1)
     try { await storage.update(sessionId, { status: partial || !complete ? 'partial' : 'saved', tracks: files.map(f => ({ key: f.key, label: f.label, source: f.source, filename: f.filename, mimeType: f.mime, bytes: f.bytes, chunks: f.chunks, startedOffsetMs: f.startedOffsetMs, stoppedOffsetMs: f.stoppedOffsetMs, captureWindowMs: f.captureWindowMs })), timing, interrupted: state.interrupted || null, stopReason: reason, sessionDurationMs: timing.sessionDurationMs }) }
-    catch (e) { publish({ interrupted: 'storage-failure', error: `Final metadata write failed: ${e.message}. Recover committed chunks after reload.` }) }
+    catch (e) { publish({ interrupted: 'storage-failure', error: `Final metadata write failed: ${e.message}. Reload to inspect whether committed chunks are still available.` }) }
+    await storage.endSession?.(sessionId)
     const interruptedMessage = state.interrupted ? `${state.message} ` : ''
     const capNote = trimmed ? ' Capture stopped at the cap; the audio already recorded is kept. ' : ''
     publish({
@@ -530,8 +533,9 @@ export function createCallRecorder({ env, storage, limits = LIMITS, now = () => 
   const stop = async (reason = 'user') => {
     if (stopping) return stopping
     if (state.phase !== 'recording') return false
-    stopping = finish(reason).then(() => true).catch(error => {
-      releaseAll(''); publish({ phase: 'partial', saving: false, sessionId, interrupted: 'storage-failure', error: `Local finalization failed: ${error.message}. Committed chunks remain recoverable after reload.` }); return false
+    stopping = finish(reason).then(() => true).catch(async error => {
+      await storage.endSession?.(sessionId)
+      releaseAll(''); publish({ phase: 'partial', saving: false, sessionId, interrupted: 'storage-failure', error: `Local finalization failed: ${error.message}. Reload to inspect any remaining local data; recovery is not guaranteed.` }); return false
     })
     try { return await stopping }
     finally { stopping = null }

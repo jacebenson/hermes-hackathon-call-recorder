@@ -57,3 +57,24 @@ test('native inactive-before-error still drains terminal data for both inputs', 
   const r = Recorder.all[0]; r.state = 'inactive'; r.onerror({ error: Error('encoder') }); queueMicrotask(() => { r.ondataavailable({ data: new Blob(['error-tail']) }); r.onstop() })
   await f.core.teardown(); assert.equal(f.session.status, 'partial'); assert.deepEqual(f.committed.sort(), ['error-tail', 'terminal'])
 })
+test('ownership remains held through terminal writes and metadata, then releases', async () => {
+  const f = fixture(); const events = []
+  const append = f.storage.append, update = f.storage.update
+  f.storage.append = async (...args) => { events.push('append'); await append(...args) }
+  f.storage.update = async (...args) => { events.push('metadata'); await update(...args) }
+  f.storage.endSession = async () => events.push('release')
+  await f.core.grantMic(); await f.core.grantCallAudio(); await f.core.start(); await f.core.stop()
+  assert.deepEqual(events, ['append', 'append', 'metadata', 'release'])
+  assert.equal(f.core.state.phase, 'done')
+})
+test('missing session releases ownership and does not promise recovery', async () => {
+  const f = fixture(); let released = false
+  await f.core.grantMic(); f.core.chooseMicOnly(); await f.core.start()
+  f.storage.get = async () => undefined
+  f.storage.endSession = async () => { released = true }
+  assert.equal(await f.core.stop(), false)
+  assert.equal(released, true)
+  assert.notEqual(f.core.state.phase, 'done')
+  assert.match(f.core.state.error, /Session is missing/)
+  assert.doesNotMatch(f.core.state.error, /remain recoverable|reading 'tracks'/)
+})

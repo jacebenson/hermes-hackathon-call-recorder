@@ -5,7 +5,42 @@ import { Button, Input, Badge, host } from "@hermes/plugin-sdk";
 import { createElement as h, useEffect, useState } from "react";
 
 // desktop/src/chunk-store.mjs
-function createChunkStore({ indexedDBImpl = globalThis.indexedDB, dbName = "call-recorder-chunks-v2" } = {}) {
+function createChunkStore({ indexedDBImpl = globalThis.indexedDB, dbName = "call-recorder-chunks-v2", locks = globalThis.navigator?.locks } = {}) {
+  const owners = /* @__PURE__ */ new Map();
+  const lockName = (id) => `${dbName}:capture:${id}`;
+  const withInactive = (id, run) => {
+    if (!locks) return Promise.reject(new Error("Web Locks are required for safe local recording storage."));
+    return locks.request(lockName(id), { ifAvailable: true }, (lock) => {
+      if (!lock) throw new Error("This call is active in a recorder. Stop it before deleting.");
+      return run();
+    });
+  };
+  const isActive = (id) => {
+    if (!locks) return Promise.resolve(true);
+    return locks.request(lockName(id), { ifAvailable: true }, (lock) => !lock);
+  };
+  const endSession = async (id) => {
+    const owner = owners.get(id);
+    if (owner) {
+      owner.release();
+      await owner.done;
+      owners.delete(id);
+    }
+  };
+  const claim = (id) => new Promise((resolve, reject) => {
+    if (!locks) {
+      reject(new Error("Web Locks are required for safe local recording storage."));
+      return;
+    }
+    const done = locks.request(lockName(id), { ifAvailable: true }, (lock) => {
+      if (!lock) throw new Error("This call already has an active recorder.");
+      return new Promise((release) => {
+        owners.set(id, { release, done });
+        resolve();
+      });
+    });
+    done.catch(reject);
+  });
   let connection;
   const open = () => connection ||= new Promise((resolve, reject) => {
     const r = indexedDBImpl.open(dbName, 1);
@@ -44,7 +79,15 @@ function createChunkStore({ indexedDBImpl = globalThis.indexedDB, dbName = "call
     const r = t.objectStore("sessions").get(id);
     r.onsuccess = () => set(r.result);
   });
-  const create = (session) => tx(["sessions"], "readwrite", (t) => t.objectStore("sessions").add(session));
+  const create = async (session) => {
+    await claim(session.id);
+    try {
+      await tx(["sessions"], "readwrite", (t) => t.objectStore("sessions").add(session));
+    } catch (e) {
+      await endSession(session.id);
+      throw e;
+    }
+  };
   const update = (id, patch) => tx(["sessions"], "readwrite", (t, set, fail) => {
     const s = t.objectStore("sessions"), r = s.get(id);
     r.onsuccess = () => {
@@ -61,10 +104,8 @@ function createChunkStore({ indexedDBImpl = globalThis.indexedDB, dbName = "call
     r.onsuccess = () => {
       try {
         const session = r.result;
-        if (!session || session.status !== "recording") {
-          t.abort();
-          return;
-        }
+        if (!session) throw new Error("Session is missing. Local recording data is unavailable.");
+        if (session.status !== "recording") throw new Error("Session is no longer recording.");
         const tracks = session.tracks.map((v) => v.key === track ? { ...v, bytes: v.bytes + blob.size, chunks: v.chunks + 1, startedOffsetMs, stoppedOffsetMs: offsetMs, captureWindowMs: offsetMs - startedOffsetMs } : v);
         t.objectStore("chunks").add({ id, track, sequence, blob, offsetMs });
         s.put({ ...session, tracks, sessionDurationMs: offsetMs });
@@ -111,7 +152,7 @@ function createChunkStore({ indexedDBImpl = globalThis.indexedDB, dbName = "call
       throw e;
     }
   };
-  const remove = (id) => tx(["sessions", "chunks"], "readwrite", (t) => {
+  const remove = (id) => withInactive(id, () => tx(["sessions", "chunks"], "readwrite", (t) => {
     t.objectStore("sessions").delete(id);
     const r = t.objectStore("chunks").openCursor(IDBKeyRange.bound([id], [id, []]));
     r.onsuccess = () => {
@@ -121,8 +162,8 @@ function createChunkStore({ indexedDBImpl = globalThis.indexedDB, dbName = "call
         c.continue();
       }
     };
-  });
-  return { create, append, get, update, list, chunks, assemble, exportTo, remove, close: () => {
+  }));
+  return { isActive, endSession, create, append, get, update, list, chunks, assemble, exportTo, remove, close: () => {
     connection?.then((db) => db.close());
     connection = null;
   } };
@@ -528,11 +569,16 @@ function createCallRecorder({ env, storage, limits = LIMITS, now = () => env.per
     }
     writer = createChunkWriter({ store: storage, id: sessionId, onFailure: (e) => {
       publish({ error: `Local write failed: ${e.name}: ${e.message}` });
-      failIfCurrent("Local storage failed. Capture stopped; committed chunks are preserved, but the tail may be missing.");
+      failIfCurrent("Local storage failed. Capture stopped. Reload to inspect any remaining local data; the tail may be missing.");
     } });
     if (disposed || current !== generation) {
       releaseAll("");
-      await storage.update(sessionId, { status: "partial", interrupted: "start-cancelled" });
+      try {
+        await storage.update(sessionId, { status: "partial", interrupted: "start-cancelled" });
+      } finally {
+        await storage.endSession?.(sessionId);
+      }
+      ;
       return false;
     }
     try {
@@ -546,6 +592,7 @@ function createCallRecorder({ env, storage, limits = LIMITS, now = () => env.per
       publish({ phase: "error", error: `Recording could not start: ${error?.message || error}. All acquired inputs were released.`, saving: false });
       releaseAll("");
       generation++;
+      await storage.endSession?.(sessionId);
       return false;
     }
     endedHandlers.push([micStream.getAudioTracks()[0], () => {
@@ -599,6 +646,7 @@ function createCallRecorder({ env, storage, limits = LIMITS, now = () => env.per
     if (!recorder) return null;
     const mime = recorder.mimeType || mimeFallback;
     const saved = await storage.get(sessionId);
+    if (!saved) throw new Error("Session is missing. Local recording data is unavailable; recovery cannot be promised.");
     const track = saved.tracks.find((t) => t.key === key);
     if (!track?.bytes) return null;
     const filename = `${key}-${clockStamp(new Date(sessionStartISO || Date.now()))}.${extFor(mime)}`;
@@ -657,7 +705,7 @@ function createCallRecorder({ env, storage, limits = LIMITS, now = () => env.per
     if (current !== generation) return;
     publish({ phase: "finalizing" });
     const writeFailure = await writer.drain();
-    if (writeFailure) publish({ interrupted: "storage-failure", error: `Local write failed: ${writeFailure.message}. Committed chunks remain recoverable; the tail may be missing.` });
+    if (writeFailure) publish({ interrupted: "storage-failure", error: `Local write failed: ${writeFailure.message}. Reload to inspect any remaining committed chunks; the tail may be missing.` });
     const mime = mics?.mimeType || calls?.mimeType || "";
     const files = [];
     const micFile = await finalizeRecorder(mics, null, "mic", "Microphone", "getUserMedia audio track", mime, "mic");
@@ -705,8 +753,9 @@ function createCallRecorder({ env, storage, limits = LIMITS, now = () => env.per
     try {
       await storage.update(sessionId, { status: partial || !complete ? "partial" : "saved", tracks: files.map((f) => ({ key: f.key, label: f.label, source: f.source, filename: f.filename, mimeType: f.mime, bytes: f.bytes, chunks: f.chunks, startedOffsetMs: f.startedOffsetMs, stoppedOffsetMs: f.stoppedOffsetMs, captureWindowMs: f.captureWindowMs })), timing, interrupted: state.interrupted || null, stopReason: reason, sessionDurationMs: timing.sessionDurationMs });
     } catch (e) {
-      publish({ interrupted: "storage-failure", error: `Final metadata write failed: ${e.message}. Recover committed chunks after reload.` });
+      publish({ interrupted: "storage-failure", error: `Final metadata write failed: ${e.message}. Reload to inspect whether committed chunks are still available.` });
     }
+    await storage.endSession?.(sessionId);
     const interruptedMessage = state.interrupted ? `${state.message} ` : "";
     const capNote = trimmed ? " Capture stopped at the cap; the audio already recorded is kept. " : "";
     publish({
@@ -726,9 +775,10 @@ function createCallRecorder({ env, storage, limits = LIMITS, now = () => env.per
   const stop = async (reason = "user") => {
     if (stopping) return stopping;
     if (state.phase !== "recording") return false;
-    stopping = finish(reason).then(() => true).catch((error) => {
+    stopping = finish(reason).then(() => true).catch(async (error) => {
+      await storage.endSession?.(sessionId);
       releaseAll("");
-      publish({ phase: "partial", saving: false, sessionId, interrupted: "storage-failure", error: `Local finalization failed: ${error.message}. Committed chunks remain recoverable after reload.` });
+      publish({ phase: "partial", saving: false, sessionId, interrupted: "storage-failure", error: `Local finalization failed: ${error.message}. Reload to inspect any remaining local data; recovery is not guaranteed.` });
       return false;
     });
     try {
@@ -823,7 +873,12 @@ function createController(env = window) {
   };
   const core = createCallRecorder({ env, storage: backend });
   const refresh = async () => {
-    ui.calls = (await backend.list()).map((r) => r.status === "recording" ? { ...r, status: "recovered", interrupted: "Interrupted session. Only committed chunks recovered; encoder tail may be missing." } : r);
+    const rows = await backend.list();
+    const visible = await Promise.all(rows.map(async (r) => {
+      if (await backend.isActive(r.id)) return null;
+      return r.status === "recording" ? { ...r, status: "recovered", interrupted: "Interrupted session. Only committed chunks recovered; encoder tail may be missing." } : r;
+    }));
+    ui.calls = visible.filter(Boolean);
     emit();
   };
   const unsubscribe = core.subscribe((state) => {
@@ -1056,7 +1111,7 @@ function RecorderPane({ controller: c, onUnmount }) {
       }, { disabled: busy || recording || u.saveState === "failed" })
     ),
     h("p", { role: s.error ? "alert" : "status", style: note }, s.error || s.message),
-    u.saveState !== "none" && h("p", { role: "status", "data-save-state": u.saveState }, u.saveState === "saving" ? "Committing final chunks\u2026" : u.saveState === "recording" ? "Recording; chunks committing locally." : u.saveState === "saved" ? "Saved in this browser." : `Partial, not fully saved. ${u.saveError}. Committed chunks remain in the library.`),
+    u.saveState !== "none" && h("p", { role: "status", "data-save-state": u.saveState }, u.saveState === "saving" ? "Committing final chunks\u2026" : u.saveState === "recording" ? "Recording; chunks committing locally." : u.saveState === "saved" ? "Saved in this browser." : `Partial, not fully saved. ${u.saveError}. Reload to inspect any remaining committed chunks.`),
     h(
       "section",
       { style: box },

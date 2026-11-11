@@ -49,10 +49,22 @@ Current Hermes `hermes_cli.plugins_cmd_inspect.detect_components` treats a YAML 
 ## Storage boundaries
 
 - Each append atomically commits its chunk and corresponding metadata counters in one transaction. A whole call is not crash-atomic across transactions.
-- A session is created before capture. Saved appears only after terminal encoder events, queued writes and final session metadata commit. An interrupted, failed or timed-out session is Partial. Reload labels unfinished `recording` rows Recovered partial without writing a false successful finalization.
+- A session is created before capture. Saved appears only after terminal encoder events, queued writes and final session metadata commit. An interrupted, failed or timed-out session is Partial. Reload labels abandoned `recording` rows Recovered partial without writing a false successful finalization. A live session in any same-origin tab/controller is excluded from recovered cards.
 - Pending writes have an 8 MiB/16-chunk bound across both tracks. An overlarge browser chunk stops capture; it is not silently accepted beyond the bound. Already committed media survives, but a failure can discard queued/uncommitted data. Stop and export the committed prefix. Do not claim lossless quota recovery.
 - Listing/recovery uses metadata-only cursors in a new database. It never `getAll`s the chunk store or scans old libraries. One selected track is assembled only for playback/fallback download. That fallback can consume substantial memory for a long call. File System Access export reads one exact indexed chunk at a time and closes the destination only after all writes.
 - Hard unload cannot await encoder events or storage. Recovery guarantees neither the pending queue nor the terminal container tail. Partial media may not decode everywhere. Calls from other origins/profiles and the old database do not appear automatically.
+
+## Active-recording deletion correction
+
+`tests/active-deletion.browser.mjs` runs against the same fixture. Set `PLUGIN_FILE` to the absolute `packages/call-recorder/desktop/plugin.js` path before starting the fixture so this checks the shipped artifact. Run it with `PROOF_URL`, `PROOF_CHROME` and a private `CHUNKED_OUT`. It uses the real loader and captures its rewritten module Blob to exercise exported controller/storage operations directly, without editing the packaged bytes.
+
+The regression saves an older title during two-track capture, refuses direct storage deletion of the exact live ID, compares both committed prefix hashes, and repeats liveness/deletion checks through a second same-origin tab/controller. It then verifies continued capture and terminal emitted/stored hash equality, confirmed deletion after stop, and actual interrupted reload recovery/deletion. Sharing an origin/profile is intentional here because the sessions being protected are in shared IndexedDB.
+
+Ownership uses a per-database/session exclusive Web Lock, acquired before creating the recording row and held through final encoder drains, chunk writes and metadata. Deletion must acquire that same lock with `ifAvailable`, and holds it through the deletion transaction. It refuses rather than waiting behind an active capture. This is an operation-boundary guard, not just a hidden button. A status flag or heartbeat timeout is not a liveness authority. Browser document destruction releases the lock automatically, so abandoned rows remain recoverable/deletable without an expiry timer. Web Locks are required; capture fails explicitly if unavailable. A frozen but still owning document stays protected until it stops or actually closes. Closing storage alone does not release a live capture's lock.
+
+This protects cooperating current-version controllers, not arbitrary same-origin JavaScript, manual site-data clearing, or an already-running pre-correction recorder that never acquired a lock. Stop old-version captures before upgrading. Missing session/finalization errors now say data is unavailable or recovery is uncertain rather than promising deleted data can be recovered.
+
+Fresh [hash-bound correction proof](evidence/active-deletion-correction.json) supersedes the prior artifact's review: 7 focused browser checks and the existing 31 short browser checks passed on the corrected artifact; chunk writer/lifecycle tests now include ownership release ordering and honest missing-session failures. The historical 183-second proof above belongs to the pre-correction artifact and has not been rerun for this correction. Actual-client gates below remain blocked.
 
 ## Required live acceptance on beast-1
 
