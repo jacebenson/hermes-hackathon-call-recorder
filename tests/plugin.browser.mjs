@@ -5,7 +5,7 @@ import {spawn,execFileSync} from 'node:child_process'
 import {mkdtempSync,readFileSync,writeFileSync,mkdirSync,rmSync} from 'node:fs'
 import {join,resolve} from 'node:path'
 import {setTimeout as sleep} from 'node:timers/promises'
-const out=resolve('docs/evidence');mkdirSync(out,{recursive:true})
+const out=resolve(process.env.PROOF_EVIDENCE||'docs/evidence');mkdirSync(out,{recursive:true})
 const profile=mkdtempSync(join(process.env.TMPDIR,'call-recorder-profile-'))
 const chrome=spawn(process.env.PROOF_CHROME||`${process.env.HOME}/.cache/ms-playwright/chromium-1248/chrome-linux64/chrome`,['--headless=new','--no-sandbox','--disable-gpu','--disable-dev-shm-usage','--remote-debugging-port=0',`--user-data-dir=${profile}`,'--no-first-run','--disable-extensions','--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream','--autoplay-policy=no-user-gesture-required','--mute-audio','about:blank'],{stdio:['ignore','ignore','pipe']})
 let errors='';chrome.stderr.on('data',d=>errors+=d)
@@ -60,18 +60,20 @@ await click('Delete this call');await click('Cancel');check('delete cancellation
 // Quota failure must keep immediate exports and retry.
 await click('Grant microphone');await ev('fixture.mode="no-audio"');await click('Grant call audio');check('no-audio share explicit, released video',await ev('document.body.innerText.includes("no shared-audio track")&&fixture.tracks.filter(t=>t.kind==="video").every(t=>t.readyState==="ended")'))
 await click('Use microphone only');await ev('window.originalPut=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(){throw new DOMException("fixture quota","QuotaExceededError")}');await click('Record');await sleep(1200);await click('Stop');await until('document.querySelector("[data-save-state=failed]")')
-check('quota failure keeps immediate downloads',await ev('document.querySelectorAll("a[download]").length>=5'))
+const failedExport=await ev(`(async()=>{const a=[...document.querySelectorAll('a[download]')].find(a=>a.textContent==='Download Microphone'&&!a.dataset.role);const b=await(await fetch(a.href)).blob();return {bytes:b.size,hash:await hashBlob(b)}})()`)
+check('quota failure keeps immediate downloads',failedExport.bytes>0&&await ev('document.querySelectorAll("a[download]").length>=5'))
 check('quota is atomic no partial record',await ev('(async()=> (await readCalls()).length===1)()'))
-await ev('IDBObjectStore.prototype.put=originalPut');await click('Retry save');await until('document.querySelector("[data-save-state=saved]")');check('retry saves explicit mic-only call',await ev('(async()=> (await readCalls()).some(c=>c.micOnly&&c.tracks.length===1))()'))
+await ev('IDBObjectStore.prototype.put=originalPut');await click('Retry save');await until('document.querySelector("[data-save-state=saved]")');check('retry saves explicit mic-only call with exact exported bytes',await ev(`(async()=>{const c=(await readCalls()).find(c=>c.micOnly&&c.tracks.length===1);return c&&c.tracks[0].blob.size===${failedExport.bytes}&&await hashBlob(c.tracks[0].blob)===${JSON.stringify(failedExport.hash)}})()`))
 await click('Release / reset inputs');await ev('fixture.deny=true');await click('Grant microphone');check('permission denial visible',await ev('document.body.innerText.includes("Microphone permission was refused")'))
 check('denial saves nothing',await ev('(async()=> (await readCalls()).length===2)()'));await ev('fixture.deny=false')
 await click('Grant microphone');await ev('fixture.mode="audio"');await click('Grant call audio');await click('Record');await sleep(300);await ev('mountPane(false)');await sleep(200);check('pane unmount releases granted tracks',await ev('fixture.tracks.every(t=>t.readyState==="ended")'));await ev('mountPane(true)');await sleep(200)
 await ev('fixture.late=true');await click('Grant microphone');await until('!!fixture.resolveLate');await ev('disposePlugin();fixture.resolveLate()');await sleep(200);check('disable late permission return releases tracks',await ev('fixture.tracks.every(t=>t.readyState==="ended")'))
-check('disable preserves saved data',await ev('(async()=> (await readCalls()).length===2)()'))
-await send('Page.reload');await until('document.querySelectorAll("audio").length===3');await click('Grant microphone');await click('Grant call audio');await click('Record');await sleep(300);await ev('window.dispatchEvent(new PageTransitionEvent("pagehide"))');await sleep(100);check('client pagehide releases tracks',await ev('fixture.tracks.every(t=>t.readyState==="ended")'))
+check('disable preserves saved data including active unmount',await ev('(async()=> (await readCalls()).length===3)()'))
+await send('Page.reload');await until('document.querySelectorAll("audio").length===5');await click('Grant microphone');await click('Grant call audio');await click('Record');await sleep(300);await ev('window.dispatchEvent(new PageTransitionEvent("pagehide"))');await sleep(100);check('client pagehide releases tracks',await ev('fixture.tracks.every(t=>t.readyState==="ended")'))
+for(let i=0;i<100;i++){if(await ev('(async()=> (await readCalls()).length===4)()'))break;await sleep(100)}
 check('no recorder backend requests',requests.length===0,JSON.stringify(requests))
-await send('Page.reload');await until('document.querySelectorAll("article").length===2');await ev('backendSwitch()');await click('Delete this call');await click('Delete permanently');await sleep(200);check('confirmed delete scopes one call',await ev('(async()=> (await readCalls()).length===1)()'))
-const survivor=await ev('(async()=>{const[c]=await readCalls();return {id:c.id,hashes:await Promise.all(c.tracks.map(t=>hashBlob(t.blob)))}})()');check('delete leaves survivor exact Blob content',survivor.id===before.metadata.id&&JSON.stringify(survivor.hashes)===JSON.stringify(before.hashes));
+await send('Page.reload');await until('document.querySelectorAll("article").length===4');await ev('backendSwitch()');await click('Delete this call');await click('Delete permanently');await sleep(200);check('confirmed delete scopes one call',await ev('(async()=> (await readCalls()).length===3)()'))
+const survivor=await ev(`(async()=>{const c=(await readCalls()).find(c=>c.id===${JSON.stringify(before.metadata.id)});return {id:c.id,hashes:await Promise.all(c.tracks.map(t=>hashBlob(t.blob)))}})()` );check('delete leaves survivor exact Blob content',survivor.id===before.metadata.id&&JSON.stringify(survivor.hashes)===JSON.stringify(before.hashes));
 check('renderer no uncaught errors',await ev('proof.errors.length===0'))
 writeFileSync(join(out,'checks.json'),JSON.stringify({displayShare:'instrumented 300Hz WebAudio + canvas; real screen audio and Electron unverified',checks},null,2))
 console.log(`Browser checks passed: ${checks.length}`)

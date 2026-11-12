@@ -1,0 +1,36 @@
+{
+  "savedCalls": 0,
+  "allTracksEnded": true,
+  "events": [
+    {
+      "event": "data",
+      "bytes": 7938,
+      "state": "recording"
+    },
+    {
+      "event": "data",
+      "bytes": 5266,
+      "state": "recording"
+    },
+    {
+      "event": "data",
+      "bytes": 5847,
+      "state": "inactive"
+    },
+    {
+      "event": "stop",
+      "state": "inactive"
+    },
+    {
+      "event": "data",
+      "bytes": 5847,
+      "state": "inactive"
+    },
+    {
+      "event": "stop",
+      "state": "inactive"
+    }
+  ],
+  "errors": []
+}
+FAIL: explicitly stopped call lost when plugin disabled before recorder stop events/IDB save

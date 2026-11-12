@@ -1,0 +1,32 @@
+{
+  "savedTracks": [
+    {
+      "key": "mic",
+      "bytes": 5266
+    }
+  ],
+  "events": [
+    {
+      "event": "data",
+      "bytes": 5266,
+      "state": "recording"
+    },
+    {
+      "event": "error",
+      "name": "InvalidModificationError",
+      "state": "inactive"
+    },
+    {
+      "event": "data",
+      "bytes": 5847,
+      "state": "inactive"
+    },
+    {
+      "event": "stop",
+      "state": "inactive"
+    }
+  ],
+  "allTracksEnded": true
+}
+{ emitted: 11113, stored: 5266, lost: 5847 }
+FAIL: final dataavailable after native error excluded from saved Blob

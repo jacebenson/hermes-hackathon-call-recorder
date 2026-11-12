@@ -18,7 +18,7 @@ export function createController(env = window) {
   try { backend = createIdbBackend({ indexedDBImpl: env.indexedDB }) }
   catch (error) { backend = { put: async () => { throw error }, getAll: async () => { throw error }, close() {} } }
   const library = createLibrary({ backend, origin: env.location.origin })
-  let disposed = false, lastSession = '', saving = null
+  let disposed = false, lastSession = '', saving = null, disposal = null
   const ui = { calls: [], error: '', saveState: 'none', saveError: '', pending: null, ready: false }
   const emit = () => { if (!disposed) for (const fn of listeners) fn() }
   const core = createCallRecorder({ env })
@@ -39,21 +39,29 @@ export function createController(env = window) {
   }
   const unsubscribe = core.subscribe(state => {
     emit()
-    if (disposed || !['done', 'partial'].includes(state.phase) || !state.files.some(f => f.key === 'mic')) return
+    if (!['done', 'partial'].includes(state.phase) || !state.files.some(f => f.key === 'mic')) return
     if (lastSession === state.startedAtISO) return
     lastSession = state.startedAtISO
     void save({ files: [...state.files], timing: state.timing, startedAtISO: state.startedAtISO })
   })
   void refresh().catch(error => { ui.error = `Local library unavailable: ${error.message}. Downloads still work.` }).finally(() => { ui.ready = true; emit() })
   const dispose = () => {
-    if (disposed) return
-    disposed = true; unsubscribe(); core.teardown()
-    for (const file of core.state.files) if (file.url) env.URL.revokeObjectURL(file.url)
+    if (disposed) return disposal
+    disposed = true
+    const drain = core.teardown() // releases tracks synchronously, retains drain
     for (const cleanup of [...cleanups]) cleanup()
     listeners.clear()
-    // Do not interrupt an already dispatched local transaction. Saved data is
-    // never cleared by teardown. Closing the connection waits for that commit.
-    void Promise.resolve(saving).finally(() => backend.close())
+    // Keep the persistence subscriber alive until terminal chunks are assembled
+    // and their atomic local save finishes, even with no mounted UI remaining.
+    disposal = (async () => {
+      try { await drain; await saving }
+      finally {
+        unsubscribe()
+        for (const file of core.state.files) if (file.url) env.URL.revokeObjectURL(file.url)
+        backend.close()
+      }
+    })()
+    return disposal
   }
   return { core, ui, library, backend, save, refresh, dispose,
     onCleanup(fn) { let live = true; const cleanup = () => { if (!live) return; live = false; cleanups.delete(cleanup); fn() }; cleanups.add(cleanup); return cleanup },
