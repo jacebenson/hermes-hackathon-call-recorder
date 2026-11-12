@@ -115,6 +115,30 @@ def human_clock(seconds: float | int | None) -> str:
 # recorder
 # --------------------------------------------------------------------------- #
 
+class CaptureUnavailable(RuntimeError):
+    """The machine cannot capture audio at all, as opposed to one bad source.
+
+    A machine with no audio server is a dead end, not a transient failure: say
+    so once, in words the user can act on, instead of surfacing a 500 and
+    letting the watcher retry forever.
+    """
+
+
+def capture_unavailable(detail: str, machine: str) -> CaptureUnavailable:
+    text = (detail or "").lower()
+    if "127" in text or "not found" in text:
+        return CaptureUnavailable(
+            f"{machine} has no audio tools installed, so it cannot record. "
+            "Install PipeWire and pulseaudio-utils there, or pick a machine with audio."
+        )
+    if "connection refused" in text or "failed to connect" in text or "no such file" in text:
+        return CaptureUnavailable(
+            f"{machine} has no running audio server, so it cannot record. "
+            "A headless server usually has none. Pick a machine with a desktop session."
+        )
+    return CaptureUnavailable(f"{machine} cannot report its audio devices: {detail.strip()[:200]}")
+
+
 class Recorder:
     """Record mic + system audio on a Linux host into one two-track mkv.
 
@@ -233,12 +257,14 @@ class Recorder:
 
     def sources(self) -> dict:
         """All four answers in one SSH round trip: each one costs ~300ms otherwise."""
-        raw = self.ok(
-            "echo __SI__; pactl list sink-inputs 2>/dev/null; "
-            "echo __SK__; pactl list short sinks 2>/dev/null; "
-            "echo __DS__; pactl get-default-sink 2>/dev/null; "
-            "echo __DC__; pactl get-default-source 2>/dev/null"
-        )
+        command = ("echo __SI__; pactl list sink-inputs 2>/dev/null; "
+                   "echo __SK__; pactl list short sinks 2>/dev/null; "
+                   "echo __DS__; pactl get-default-sink 2>/dev/null; "
+                   "echo __DC__; pactl get-default-source 2>/dev/null")
+        try:
+            raw = self.ok(command)
+        except RuntimeError as exc:
+            raise capture_unavailable(str(exc), self.host or "this machine") from exc
         sections = {"__SI__": "", "__SK__": "", "__DS__": "", "__DC__": ""}
         current = None
         for line in raw.splitlines():
