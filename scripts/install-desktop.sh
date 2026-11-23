@@ -9,4 +9,4 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 mkdir -p "$1/desktop-plugins/call-recorder"
 cp "$root/desktop/plugin.js" "$1/desktop-plugins/call-recorder/plugin.js"
 cmp "$root/desktop/plugin.js" "$1/desktop-plugins/call-recorder/plugin.js"
-printf '%s\n' 'Copied desktop artifact only. Enable Call recorder in Hermes plugin settings.'
+printf '%s\n' 'Copied desktop UI only. Native recording also requires the unified call-recorder backend plugin enabled in this Hermes home.'
