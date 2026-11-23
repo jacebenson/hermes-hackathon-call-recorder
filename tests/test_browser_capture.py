@@ -22,9 +22,12 @@ class BrowserCaptureTests(unittest.TestCase):
         cfg.start(); self.addCleanup(cfg.stop)
         manifest = patch.object(api, 'manifest_settings', return_value={})
         manifest.start(); self.addCleanup(manifest.stop)
+        # Browser tests must select browser explicitly, independent of defaults.
+        (self.root / 'settings.json').write_text('{"capture_mode":"browser"}')
 
-    def test_new_install_browser_explicit_legacy_host_computer_and_override(self):
-        self.assertEqual(api.settings()['capture_mode'], 'browser')
+    def test_new_install_native_explicit_legacy_host_computer_and_override(self):
+        (self.root / 'settings.json').unlink()
+        self.assertEqual(api.settings()['capture_mode'], 'computer')
         (self.root / 'settings.json').write_text(json.dumps({'host': 'old-host', 'custom': 7}))
         self.assertEqual(api.settings()['capture_mode'], 'computer')
         result = asyncio.run(api.post_capture_mode({'capture_mode': 'browser'}))

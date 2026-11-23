@@ -21,7 +21,8 @@ import{loadRuntimePlugin}from'${src}/contrib/runtime-loader';
 import{registry}from'${src}/contrib/registry';
 import{useContributions}from'${src}/contrib/react/use-contributions';
 import{$pluginRecords,$pluginDecisions,setPluginEnabled}from'${src}/contrib/plugins-store';
-import{host}from'${src}/sdk/index';
+import{host,queryClient}from'${src}/sdk/index';
+import{QueryClientProvider}from'@tanstack/react-query';
 import{$connection}from'${src}/store/session';
 import{$activeGatewayProfile}from'${src}/store/profile';
 $connection.set({mode:'remote',connectionId:'fixture-remote-a'});$activeGatewayProfile.set('fixture-profile-a');
@@ -34,7 +35,7 @@ function SlotWrap({mount}){return mount?<Slot/>:null}
 $pluginDecisions.set({'call-recorder':true});
 await loadRuntimePlugin(await(await fetch('/plugin.js')).text(),'fixture/client-local');
 window.proof.records=$pluginRecords.get();window.proof.contributions=registry.getArea('panes').map(c=>({id:c.id,source:c.source,title:c.title}));
-createRoot(document.getElementById('root')).render(<ThemeProvider><App/></ThemeProvider>);
+createRoot(document.getElementById('root')).render(<QueryClientProvider client={queryClient}><ThemeProvider><App/></ThemeProvider></QueryClientProvider>);
 `)
 await build({plugins:[{name:'fixture-no-bundled-discovery',setup(b){b.onLoad({filter:/\/catalog-curation\.ts$/},args=>({contents:readFileSync(args.path,'utf8').replace(/import\.meta\.glob\([\s\S]*?\)/g,'({})'),loader:'ts'}))}}],entryPoints:[entry],outfile:join(out,'bundle.js'),bundle:true,format:'esm',jsx:'automatic',nodePaths:[join(desktop,'node_modules'),join(workspace,'node_modules')],alias:{'@':src,'@hermes/shared':join(workspace,'apps/shared/src')},define:{'import.meta.env':'{}','process.env.NODE_ENV':'"production"','import.meta.env.DEV':'false','import.meta.env.PROD':'true','import.meta.env.BASE_URL':'"/"','import.meta.env.VITE_WEBAPP':'"true"'},loader:{'.woff2':'dataurl','.ttf':'dataurl','.css':'empty'},logLevel:'warning'})
 // Vite's catalog artwork glob is unrelated to recorder behavior; emulate its
