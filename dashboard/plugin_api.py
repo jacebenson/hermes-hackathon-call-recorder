@@ -60,7 +60,7 @@ router = APIRouter()
 #: manifest schema: the settings page asks four questions, not seven.
 DEFAULTS = {
     "host": "",                    # "" = the machine Hermes runs on
-    "capture_mode": "browser",
+    "capture_mode": "computer",
     "recordings_dir": "~/recordings",
     "transcribe": True,            # the one transcription switch
     "stop_when_call_ends": True,   # three minutes of grace, then stop and transcribe
@@ -153,8 +153,9 @@ def settings() -> dict:
     manifest = manifest_settings()
     merged.update({k: v for k, v in manifest.items() if k in DEFAULTS})
     if 'capture_mode' not in saved and 'capture_mode' not in manifest:
-        # Explicit legacy local capture is as intentional as an SSH host.
-        merged['capture_mode'] = 'computer' if ('host' in saved or 'host' in manifest or os.environ.get('CALLREC_HOST')) else 'browser'
+        # Native is the new-install default. Explicit saved browser choices and
+        # configured local/SSH hosts remain intact; never rewrite preferences.
+        merged['capture_mode'] = 'computer'
     # A pane choice wins over the page value it replaced, but a later explicit
     # change in Settings wins again. Keep all other settings' precedence intact.
     if "_capture_host_manifest" in saved and saved["_capture_host_manifest"] == manifest.get("host"):
@@ -398,9 +399,20 @@ def _status_payload() -> dict:
 
 
 _WATCHER_STARTED = False
+_WATCHER_LOCK = threading.Lock()
 
 
 def _watch() -> None:
+    """Release the start latch even when audio fails or the thread exits."""
+    global _WATCHER_STARTED
+    try:
+        _watch_loop()
+    finally:
+        with _WATCHER_LOCK:
+            _WATCHER_STARTED = False
+
+
+def _watch_loop() -> None:
     """Poll the target host and let the recorder decide: start, wait, or stop."""
     interval = max(3, int(settings().get("watch_seconds") or 10))
     while True:
@@ -429,10 +441,18 @@ def ensure_watcher() -> None:
     """Start the automation thread once per process, only when there is work to do."""
     global _WATCHER_STARTED
     cfg = settings()
-    if cfg.get("capture_mode") == "browser" or _WATCHER_STARTED or not (cfg["auto_start"] or int(cfg["auto_stop_seconds"] or 0) > 0):
+    if cfg.get("capture_mode") == "browser" or not (cfg["auto_start"] or int(cfg["auto_stop_seconds"] or 0) > 0):
         return
-    _WATCHER_STARTED = True
-    threading.Thread(target=_watch, name="call-recorder-watch", daemon=True).start()
+    with _WATCHER_LOCK:
+        if _WATCHER_STARTED:
+            return
+        _WATCHER_STARTED = True
+    try:
+        threading.Thread(target=_watch, name="call-recorder-watch", daemon=True).start()
+    except Exception:
+        with _WATCHER_LOCK:
+            _WATCHER_STARTED = False
+        raise
     _log.info("call-recorder: watcher running (%ss)", cfg["watch_seconds"])
 
 
@@ -802,7 +822,6 @@ async def post_transcribe(body: dict) -> dict:
     return await asyncio.to_thread(_force)
 
 
-# v2 is client-local. Import/registration must never start legacy capture,
-# probe SSH targets, or install helpers. Explicit legacy API /start still calls
-# ensure_watcher() for an intentionally started legacy recording. Existing files
-# and APIs are retained; loading the package is inert.
+# Import is inert: no microphone, recording, watcher, SSH or helper setup until
+# the user opens native controls and explicitly starts a recording. /start arms
+# the auto-stop watcher, which can recover after a missing-audio failure.
