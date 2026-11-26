@@ -1,5 +1,9 @@
 // Isolated loopback proof using the installed production loader, SDK and CSS.
 // Does not install anything in a real Hermes home or attach to a live session.
+//
+// The fixture now mounts what the desktop mounts: the real ChatSidebar (so the
+// sidebar row is the host's own row), the real route table for contributed
+// pages, and the recorder pane alongside the page.
 import { createRequire } from 'node:module'
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -16,26 +20,54 @@ const cssName = readdirSync(cssDir).find(n => /^main-.*\.css$/.test(n))
 const entry = join(out, 'entry.jsx')
 writeFileSync(entry, `
 import React,{useState} from 'react';import{createRoot}from'react-dom/client';
+import{HashRouter,Routes,Route,useLocation}from'react-router';
 import{ThemeProvider,useTheme}from'${src}/themes/context';
 import{loadRuntimePlugin}from'${src}/contrib/runtime-loader';
 import{registry}from'${src}/contrib/registry';
 import{useContributions}from'${src}/contrib/react/use-contributions';
+import{ContribBoundary,ContribRender}from'${src}/contrib/react/boundary';
+import{contributedRoutes}from'${src}/app/routes';
+import{ChatSidebar}from'${src}/app/chat/sidebar/index';
+import{SidebarProvider}from'${src}/components/ui/sidebar';
 import{$pluginRecords,$pluginDecisions,setPluginEnabled}from'${src}/contrib/plugins-store';
 import{host,queryClient}from'${src}/sdk/index';
 import{QueryClientProvider}from'@tanstack/react-query';
 import{$connection}from'${src}/store/session';
-import{$activeGatewayProfile}from'${src}/store/profile';
+import{$activeGatewayProfile,$profiles}from'${src}/store/profile';
 $connection.set({mode:'remote',connectionId:'fixture-remote-a'});$activeGatewayProfile.set('fixture-profile-a');
-window.proof={errors:[]};window.addEventListener('error',e=>proof.errors.push(e.message));
+// A connection change re-derives the profile rail; pin one profile so the
+// sidebar renders the same way every run.
+$profiles.set([{name:'default',display_name:'default',is_default:true}]);
+window.proof={errors:[]};window.probe=()=>({profiles:$profiles.get()});window.addEventListener('error',e=>proof.errors.push(e.message));
 window.disposePlugin=()=>setPluginEnabled('call-recorder',false);
 window.backendSwitch=()=>{ $connection.set({mode:'remote',connectionId:'fixture-remote-b'});$activeGatewayProfile.set('fixture-profile-b');return {connection:host.state.connectionId.get(),profile:host.state.profile.get()} };
-function Slot(){return useContributions('panes').map(c=><React.Fragment key={c.id}>{c.render?.()}</React.Fragment>)}
-function App(){let theme=useTheme();let[mount,setMount]=useState(true);window.setTheme=theme.setMode;window.mountPane=setMount;return <div style={{height:'100vh',background:'var(--ui-bg-primary)',color:'var(--ui-text-primary)'}}><SlotWrap mount={mount}/></div>}
-function SlotWrap({mount}){return mount?<Slot/>:null}
+const noop=()=>{};const noopAsync=async()=>{};
+// The pane contribution, mounted beside the page exactly as the layout pane is.
+function PaneSlot(){return useContributions('panes').map(c=><React.Fragment key={c.id}>{c.render?.()}</React.Fragment>)}
+function Workspace(){const snapshot=useContributions('routes');const routes=contributedRoutes(snapshot);return <Routes>
+  <Route index element={<div className="p-6 text-sm text-(--ui-text-quaternary)">chat (fixture)</div>}/>
+  {routes.map(route=><Route key={route.key} path={route.path.slice(1)} element={<ContribBoundary id={route.key}><ContribRender render={route.render}/></ContribBoundary>}/>)}
+  <Route path="*" element={<div className="p-6 text-sm">no route (fixture)</div>}/>
+</Routes>}
+function Shell(){const{pathname}=useLocation();const page=pathname!=='/';
+ return <div className="flex h-screen min-h-0 overflow-hidden">
+  <div className="hidden shrink-0 md:block"><SidebarProvider><ChatSidebar currentView={page?'extension':'chat'}
+    onArchiveSession={noop} onBranchSession={noop} onDeleteSession={noop} onLoadMoreSessions={noop}
+    onManageCronJob={noop} onNavigate={item=>{if(item.route)host.navigate(item.route)}} onNewSessionInWorkspace={noop}
+    onNewSessionSplit={noop} onResumeSession={noop} onRetrySessions={noopAsync} onTriggerCronJob={noopAsync}/></SidebarProvider></div>
+  <div className="flex min-w-0 flex-1">
+   <main className="min-w-0 flex-1 overflow-hidden"><Workspace/></main>
+   <aside className="hidden w-[360px] shrink-0 overflow-hidden border-l border-(--ui-stroke-secondary) md:block"><PaneSlot/></aside>
+  </div>
+ </div>}
+function App(){let theme=useTheme();window.setTheme=theme.setMode;return <div style={{height:'100vh',background:'var(--ui-bg-primary)',color:'var(--ui-text-primary)'}}><Shell/></div>}
 $pluginDecisions.set({'call-recorder':true});
 await loadRuntimePlugin(await(await fetch('/plugin.js')).text(),'fixture/client-local');
-window.proof.records=$pluginRecords.get();window.proof.contributions=registry.getArea('panes').map(c=>({id:c.id,source:c.source,title:c.title}));
-createRoot(document.getElementById('root')).render(<QueryClientProvider client={queryClient}><ThemeProvider><App/></ThemeProvider></QueryClientProvider>);
+window.proof.records=$pluginRecords.get();
+window.proof.contributions=registry.getArea('panes').map(c=>({id:c.id,source:c.source,title:c.title}));
+window.proof.routes=registry.getArea('routes').map(c=>({id:c.id,data:c.data}));
+window.proof.nav=registry.getArea('sidebar.nav').map(c=>({id:c.id,data:c.data}));
+createRoot(document.getElementById('root')).render(<QueryClientProvider client={queryClient}><ThemeProvider><HashRouter useTransitions={false}><App/></HashRouter></ThemeProvider></QueryClientProvider>);
 `)
 await build({plugins:[{name:'fixture-no-bundled-discovery',setup(b){b.onLoad({filter:/\/catalog-curation\.ts$/},args=>({contents:readFileSync(args.path,'utf8').replace(/import\.meta\.glob\([\s\S]*?\)/g,'({})'),loader:'ts'}))}}],entryPoints:[entry],outfile:join(out,'bundle.js'),bundle:true,format:'esm',jsx:'automatic',nodePaths:[join(desktop,'node_modules'),join(workspace,'node_modules')],alias:{'@':src,'@hermes/shared':join(workspace,'apps/shared/src')},define:{'import.meta.env':'{}','process.env.NODE_ENV':'"production"','import.meta.env.DEV':'false','import.meta.env.PROD':'true','import.meta.env.BASE_URL':'"/"','import.meta.env.VITE_WEBAPP':'"true"'},loader:{'.woff2':'dataurl','.ttf':'dataurl','.css':'empty'},logLevel:'warning'})
 // Vite's catalog artwork glob is unrelated to recorder behavior; emulate its

@@ -12,7 +12,7 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import * as sdk from '@hermes/plugin-sdk'
 
-const { Badge, Button, Input, Select, SelectTrigger, SelectValue, SelectContent, SelectItem, StatusDot, Switch, cn, host, useQuery, useQueryClient } = sdk
+const { Badge, Button, Input, Select, SelectTrigger, SelectValue, SelectContent, SelectItem, StatusDot, Switch, cn, host, useQuery, useQueryClient, ROUTES_AREA, SIDEBAR_NAV_AREA } = sdk
 
 const ID = 'call-recorder'
 const recordingKey = (row) => (row.machine || '') + ':' + row.file
@@ -36,14 +36,38 @@ const clock = (s) =>
 
 // The server reports elapsed once per poll; between polls the number is stale, so
 // derive it from the local clock. Otherwise the timer jumps 2 to 6 seconds at a time.
+//
+// ONE clock for every mounted surface: the pane and the /call-recorder page can be
+// on screen at the same time, and a per-component interval would leave two timers
+// ticking over one recorder. The interval starts with the first subscriber and
+// stops with the last.
+const ticks = { listeners: new Set(), id: null }
+const subscribeTick = (fn) => {
+  ticks.listeners.add(fn)
+  if (ticks.id === null) {
+    ticks.id = setInterval(() => {
+      for (const listener of [...ticks.listeners]) listener()
+    }, 1000)
+  }
+  return () => {
+    ticks.listeners.delete(fn)
+    if (!ticks.listeners.size && ticks.id !== null) {
+      clearInterval(ticks.id)
+      ticks.id = null
+    }
+  }
+}
 const useTicker = (active) => {
   const [, force] = useState(0)
   useEffect(() => {
     if (!active) return undefined
-    const id = setInterval(() => force((n) => n + 1), 1000)
-    return () => clearInterval(id)
+    return subscribeTick(() => force((n) => n + 1))
   }, [active])
 }
+
+// One recorder, so one command: two surfaces showing the same recorder must not
+// both POST a start because both drew a Record button.
+let recorderCommandInFlight = false
 
 const elapsedNow = (status) => {
   const st = (status && status.data) || {}
@@ -424,7 +448,12 @@ const liveSummary = (lines, on) => lines.length
   ? parseLive(lines[lines.length - 1]).text
   : on ? 'waiting for speech…' : 'no live transcript'
 
-function RecorderPane({ ctx }) {
+function RecorderPane({ ctx, variant = 'pane' }) {
+  // One component, two mounts: the layout pane and the /call-recorder page. The
+  // page is the same recorder with the transcript promoted to the main event and
+  // one Record/Stop control instead of two buttons.
+  const page = variant === 'page'
+  const small = page ? 'text-xs' : 'text-[0.6875rem]'
   const qc = useQueryClient()
   const browser = useBrowserCapture(ctx)
   const [busy, setBusy] = useState(false)
@@ -473,7 +502,7 @@ function RecorderPane({ ctx }) {
   useTranscriptionNotices(st, qc)
   const recording = !!st.recording || (browserMode && browser.phase === 'recording')
   const liveOn = !browserMode && recording && !!st.live
-  useTicker(browserMode && browser.phase === 'recording')
+  useTicker(recording)
 
   const live = useQuery({
     queryKey: [ID, 'live'],
@@ -498,6 +527,11 @@ function RecorderPane({ ctx }) {
 
   const call = useCallback(
     async (path, body) => {
+      // Only one recorder exists; a start/stop already on the wire wins over a
+      // second surface's click. Everything else stays parallel.
+      const command = path === '/start' || path === '/stop'
+      if (command && recorderCommandInFlight) return undefined
+      if (command) recorderCommandInFlight = true
       setBusy(true)
       try {
         const res = checked(await ctx.rest(path, { method: 'POST', body: body || {}, timeoutMs: path === '/transcribe' ? 3600000 : 120000 }))
@@ -528,6 +562,7 @@ function RecorderPane({ ctx }) {
       } catch (e) {
         host.notify({ kind: 'error', message: 'call-recorder: ' + (e && e.message ? e.message : e) })
       } finally {
+        if (command) recorderCommandInFlight = false
         setBusy(false)
       }
     },
@@ -557,34 +592,85 @@ function RecorderPane({ ctx }) {
   }
 
   const items = (recs.data && recs.data.items) || []
+  const elapsed = elapsedNow(status)
+  // The machine that is actually capturing, not the settings fallback: the live
+  // transcript belongs to a specific host and the page says which.
+  const machineLabel = selectedHost.host || selectedHost.backend_host || cfg.host_label || cfg.host || 'the capture machine'
+
+  // Both surfaces draw the same transcript rows; only the frame and type size differ.
+  const liveRows = () => lines.length
+    ? lines.map((line, i) => {
+        const p = parseLive(line)
+        return jsxs(
+          'div',
+          {
+            className: 'flex gap-1.5',
+            children: [
+              jsx('span', { className: 'shrink-0 text-(--ui-text-quaternary)', children: p.t }),
+              jsx('span', {
+                className: cn('shrink-0 font-semibold', p.who === 'you' ? 'text-green-500' : 'text-blue-400'),
+                children: p.who
+              }),
+              jsx('span', { className: 'min-w-0', children: p.text })
+            ]
+          },
+          i
+        )
+      })
+    : jsx('div', {
+        className: 'text-(--ui-text-quaternary)',
+        children: recording ? 'waiting for speech…' : 'no live transcript'
+      })
 
   return jsxs('div', {
-    className: 'flex h-full flex-col gap-2 p-3 text-sm',
+    'data-recorder-surface': variant,
+    className: page
+      ? 'flex h-full min-h-0 w-full flex-col gap-3 p-4 text-sm sm:p-6'
+      : 'flex h-full flex-col gap-2 p-3 text-sm',
+    // The host's CSS only carries utilities its own source uses, so the page's
+    // measure and the live panel's floor are set here rather than via classes
+    // that may not exist in the shipped stylesheet.
+    style: page ? { maxWidth: '48rem', marginLeft: 'auto', marginRight: 'auto' } : undefined,
     children: [
-      jsxs('div', {
-        className: 'flex items-center justify-between gap-2',
-        children: [
-          jsxs('div', {
-            className: 'flex items-center gap-2',
-            children: [
+      page
+        ? jsxs('header', { className: 'flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1', children: [
+            jsxs('div', { className: 'flex min-w-0 items-center gap-2', children: [
               jsx(StatusDot, { className: recording ? 'text-red-500' : 'text-(--ui-text-quaternary)' }),
-              jsx('span', {
-                className: 'font-medium',
-                children: recording
-                  ? 'Recording'
-                  : status.isError
-                    ? 'Recorder unreachable'
-                    : 'Idle'
+              jsx('h1', { className: 'truncate text-base font-semibold', children: 'Call recorder' }),
+              jsx('span', { className: 'truncate ' + small + ' text-(--ui-text-quaternary)',
+                children: recording ? 'recording on ' + machineLabel : 'capture on ' + machineLabel })
+            ] }),
+            jsxs('div', { className: 'flex items-center gap-2 ' + small + ' text-(--ui-text-quaternary)', children: [
+              recording
+                ? jsx(Badge, { children: clock(browserMode ? Math.floor((Date.now() - browser.started) / 1000) : elapsed) })
+                : jsx('span', { children: 'idle' }),
+              recording ? jsx('span', { children: mb(st.bytes) }) : null
+            ] })
+          ] })
+        : jsxs('div', {
+            className: 'flex items-center justify-between gap-2',
+            children: [
+              jsxs('div', {
+                className: 'flex items-center gap-2',
+                children: [
+                  jsx(StatusDot, { className: recording ? 'text-red-500' : 'text-(--ui-text-quaternary)' }),
+                  jsx('span', {
+                    className: 'font-medium',
+                    children: recording
+                      ? 'Recording'
+                      : status.isError
+                        ? 'Recorder unreachable'
+                        : 'Idle'
+                  }),
+                  recording ? jsx(Badge, { children: clock(browserMode ? Math.floor((Date.now() - browser.started) / 1000) : st.elapsed) }) : null
+                ]
               }),
-              recording ? jsx(Badge, { children: clock(browserMode ? Math.floor((Date.now() - browser.started) / 1000) : st.elapsed) }) : null
+              jsx('span', {
+                className: 'text-[0.6875rem] text-(--ui-text-quaternary)',
+                children: recording ? mb(st.bytes) : ''
+              })
             ]
           }),
-          jsx('span', {
-            className: 'text-[0.6875rem] text-(--ui-text-quaternary)',
-            children: recording ? mb(st.bytes) : ''
-          })
-        ]
-      }),
       !browserMode && status.isError
         ? jsx('div', {
             className: 'text-[0.6875rem] leading-snug text-(--ui-text-quaternary)',
@@ -623,7 +709,25 @@ function RecorderPane({ ctx }) {
         : 'Microphone and system audio, saved on ' + (selectedHost.host || selectedHost.backend_host || 'the backend computer') + '.' }),
       browserMode && (browser.error || browser.message) ? jsx('div', { role: browser.error ? 'alert' : 'status',
         className: 'text-[0.6875rem]', children: browser.error || browser.message }) : null,
-      jsxs('div', { className: 'flex items-center gap-2', children: [
+      page
+        ? jsxs('div', { className: 'flex items-center gap-2', children: [
+            jsx(Button, {
+              size: 'default',
+              style: { minWidth: '7rem' },
+              // ONE control: the same button starts and stops, so the page can
+              // never show a live Stop next to a dead Record.
+              disabled: recording
+                ? busy || (browserMode ? browser.phase !== 'recording' : false)
+                : busy || browserActive || !captureHost.data,
+              onClick: () => recording
+                ? browserMode ? ctx.browserCapture.stop() : call('/stop')
+                : browserMode ? ctx.browserCapture.start() : call('/start', { live: true }),
+              children: recording ? 'Stop' : 'Record'
+            }),
+            browserMode && ['pending', 'recording'].includes(browser.phase) ? jsx(Button, { size: 'default', variant: 'ghost',
+              onClick: () => ctx.browserCapture.cancel(), children: 'Cancel' }) : null
+          ] })
+        : jsxs('div', { className: 'flex items-center gap-2', children: [
         jsx(Button, { size: 'sm', disabled: busy || recording || browserActive || !captureHost.data,
           onClick: () => browserMode ? ctx.browserCapture.start() : call('/start', { live: true }), children: 'Record' }),
         jsx(Button, { size: 'sm', variant: 'secondary', disabled: busy || (browserMode ? browser.phase !== 'recording' : !recording),
@@ -744,48 +848,59 @@ function RecorderPane({ ctx }) {
         ] : [jsx('div', { className: 'text-[0.6875rem]', children: cfg.transcription_detail || 'Checking backend Whisper…' })])
       ] }),
       jsx('div', { className: 'h-px bg-(--ui-stroke-secondary)' }),
-      jsx('button', {
-        type: 'button',
-        'aria-label': 'Toggle live transcript',
-        'aria-expanded': !collapsed,
-        onClick: toggleLive,
-        className: 'truncate text-left text-[0.6875rem] text-(--ui-text-quaternary)',
-        children: browserMode ? 'Live transcription unavailable for browser microphone' : (collapsed ? '▸ Live · ' : '▾ Live') + (collapsed ? liveSummary(lines, liveOn) : '')
-      }),
-      collapsed || browserMode ? null : jsx('div', {
+      page
+        ? recording
+          ? jsxs('section', {
+            'aria-label': 'Live transcript',
+            className: 'flex min-h-40 flex-1 flex-col overflow-hidden rounded-lg border border-(--ui-stroke-secondary) bg-(--card)',
+            style: { minHeight: '10rem' },
+            children: [
+              jsxs('div', { className: 'flex items-center justify-between gap-2 border-b border-(--ui-stroke-secondary) px-3 py-2', children: [
+                jsxs('span', { className: 'flex min-w-0 items-center gap-2 ' + small + ' font-medium', children: [
+                  jsx('span', { className: cn('block h-1.5 w-1.5 shrink-0 rounded-full',
+                    liveOn ? 'bg-red-500 animate-pulse' : 'bg-(--ui-text-quaternary)') }),
+                  jsx('span', { children: 'Live transcript' }),
+                  jsx('span', { className: 'truncate font-normal text-(--ui-text-quaternary)', children: '· ' + machineLabel })
+                ] }),
+                jsx('span', { className: 'shrink-0 ' + small + ' text-(--ui-text-quaternary)',
+                  children: liveOn ? 'auto-scroll' : recording ? 'live off' : 'idle' })
+              ] }),
+              jsx('div', {
+                ref: tailRef,
+                className: 'min-h-0 flex-1 overflow-y-auto p-3 font-mono text-xs leading-relaxed',
+                children: liveRows()
+              }),
+              liveOn ? null : jsx('div', { className: 'border-t border-(--ui-stroke-secondary) px-3 py-2 ' + small + ' leading-snug text-(--ui-text-quaternary)',
+                children: browserMode
+                  ? 'The browser microphone is one mixed voice track, so there is no live transcript. The recording is saved when you stop.'
+                  : recording
+                    ? (cfg.why || 'Live transcription is not running for this capture; the audio is still being recorded.')
+                    : 'Press Record to start a call; the live transcript appears here.' })
+            ]
+          })
+          : jsx('div', { className: small + ' text-(--ui-text-quaternary)',
+              children: 'No call recording now. Press Record and the live transcript appears here.' })
+        : jsx('button', {
+            type: 'button',
+            'aria-label': 'Toggle live transcript',
+            'aria-expanded': !collapsed,
+            onClick: toggleLive,
+            className: 'truncate text-left text-[0.6875rem] text-(--ui-text-quaternary)',
+            children: browserMode ? 'Live transcription unavailable for browser microphone' : (collapsed ? '▸ Live · ' : '▾ Live') + (collapsed ? liveSummary(lines, liveOn) : '')
+          }),
+      page || collapsed || browserMode ? null : jsx('div', {
         ref: tailRef,
         className:
           'min-h-0 flex-1 overflow-y-auto rounded border border-(--ui-stroke-secondary) p-2 font-mono text-[0.6875rem] leading-relaxed',
-        children: lines.length
-          ? lines.map((line, i) => {
-              const p = parseLive(line)
-              return jsxs(
-                'div',
-                {
-                  className: 'flex gap-1.5',
-                  children: [
-                    jsx('span', { className: 'shrink-0 text-(--ui-text-quaternary)', children: p.t }),
-                    jsx('span', {
-                      className: cn('shrink-0 font-semibold', p.who === 'you' ? 'text-green-500' : 'text-blue-400'),
-                      children: p.who
-                    }),
-                    jsx('span', { className: 'min-w-0', children: p.text })
-                  ]
-                },
-                i
-              )
-            })
-          : jsx('div', {
-              className: 'text-(--ui-text-quaternary)',
-              children: recording ? 'waiting for speech…' : 'no live transcript'
-            })
+        children: liveRows()
       }),
       jsx('div', {
-        className: 'text-[0.6875rem] uppercase tracking-wide text-(--ui-text-quaternary)',
+        className: small + ' uppercase tracking-wide text-(--ui-text-quaternary)',
         children: 'Recordings'
       }),
       jsx('div', {
-        className: 'flex flex-col gap-1 overflow-y-auto',
+        className: cn('flex flex-col gap-1 overflow-y-auto', page && (recording ? 'shrink-0' : 'flex-1')),
+        style: page && recording ? { maxHeight: '40vh' } : undefined,
         children: items.length
           ? items.map((r) =>
               jsxs(
@@ -798,7 +913,7 @@ function RecorderPane({ ctx }) {
                       'aria-expanded': layout.expanded.includes(recordingKey(r)),
                       onClick: () => toggleRow(recordingKey(r)),
                       className:
-                        'flex w-full items-center justify-between gap-2 px-2 py-1 text-left text-[0.6875rem] hover:bg-(--chrome-action-hover)',
+                        'flex w-full items-center justify-between gap-2 px-2 py-1 text-left ' + small + ' hover:bg-(--chrome-action-hover)',
                       children: [
                         jsxs('span', {
                           className: 'min-w-0',
@@ -946,8 +1061,10 @@ function RecorderPane({ ctx }) {
                 children: 'reading ' + (cfg.host || 'this machine') + '…'
               })
             : jsx('div', {
-                className: 'text-[0.6875rem] leading-snug text-(--ui-text-quaternary)',
-                children: 'nothing recorded yet - click the rec button next to the composer while you are on a call'
+                className: small + ' leading-snug text-(--ui-text-quaternary)',
+                children: page
+                  ? 'nothing recorded yet - press Record above; the call and its transcript land here'
+                  : 'nothing recorded yet - click the rec button next to the composer while you are on a call'
               })
       })
     ]
@@ -1053,6 +1170,20 @@ export default {
       title: 'call recorder',
       data: { placement: 'right', width: '360px' },
       render: () => jsx(RecorderPane, { ctx })
+    })
+    // The same recorder as a full page, reachable from the sidebar. The pane
+    // stays: pane and page share one capture state and one query cache.
+    ctx.register({
+      id: 'call-recorder-page',
+      area: ROUTES_AREA,
+      title: 'Call recorder',
+      data: { path: '/call-recorder' },
+      render: () => jsx(RecorderPane, { ctx, variant: 'page' })
+    })
+    ctx.register({
+      id: 'call-recorder-nav',
+      area: SIDEBAR_NAV_AREA,
+      data: { path: '/call-recorder', label: 'Call recorder', codicon: 'record' }
     })
   }
 }

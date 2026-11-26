@@ -32,6 +32,11 @@ ws.addEventListener('message',async e=>{
  const m=JSON.parse(e.data);if(m.method!=='Fetch.requestPaused')return
  const p=m.params,path=new URL(p.request.url).pathname
  let body={ok:true}
+ // The fixture now mounts the real sidebar, which reads the backend's profile
+ // and session lists on boot. Answer them so the shell can render.
+ if(path.endsWith('/profiles/active'))body={ok:true,current:'default',profile:'default'}
+ else if(path.endsWith('/profiles'))body={ok:true,profiles:[{name:'default',display_name:'default',is_default:true}]}
+ else if(path.endsWith('/sessions'))body={ok:true,sessions:[]}
  if(path.endsWith('/capture-host'))body={ok:true,capture_mode:'computer',host:'fixture-capture-box',backend_host:'fixture-backend',recent_hosts:[]}
  else if(path.endsWith('/config'))body={ok:true,host:'fixture-capture-box',host_label:'fixture-capture-box',live:true,transcription:true,ready:true}
  else if(path.endsWith('/start')){stage='recording';body=status()}
@@ -44,6 +49,11 @@ ws.addEventListener('message',async e=>{
 })
 await send('Page.addScriptToEvaluateOnNewDocument',{source:`window.hermesDesktop={api:async req=>(await fetch(req.path,{method:req.method||'GET',headers:{'Content-Type':'application/json'},body:req.body?JSON.stringify(req.body):undefined})).json()};navigator.mediaDevices.getUserMedia=()=>{throw Error('Physical microphone forbidden')};navigator.mediaDevices.getDisplayMedia=()=>{throw Error('Screen capture forbidden')}`})
 await send('Page.navigate',{url:'http://127.0.0.1:4197/'})
+// A desktop window: the fixture's layout pane sits beside the workspace, as it
+// does in the real app once the pane is docked. Navigation clears the override.
+await until('window.proof && document.querySelector("[data-recorder-surface]")')
+await send('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false})
+await sleep(300)
 await until("document.body.innerText.includes('fixture-capture-box')")
 check('real loader loaded native entrypoint',await ev("proof.records['call-recorder'].status==='loaded'"))
 check('native idle names actual fixture capture machine',await ev("document.body.innerText.includes('fixture-capture-box')"))

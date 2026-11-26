@@ -52,6 +52,19 @@ The native proof passed 7 checks using the real runtime loader, actual SDK compo
 ![Native idle fixture](evidence/native-restoration/native-idle.png)
 ![Native transcript and history fixture](evidence/native-restoration/native-transcript-history.png)
 
+## Sidebar page
+
+`tests/serve-sdk.mjs` now mounts the real `ChatSidebar`, the real `contributedRoutes` table and the recorder pane, so the sidebar row and the page are the host's own components. `tests/sidebar-page.browser.mjs` clicks the row, records through the page's single control, and screenshots the page while the live transcript is arriving:
+
+```sh
+PROOF_CHROME=/usr/sbin/chromium node tests/sidebar-page.browser.mjs
+```
+
+20 checks passed: the `routes` and `sidebar.nav` contributions register with the documented data shape, the row's accessible name is `Call recorder`, clicking it lands on `/call-recorder` with the page and pane both mounted, both surfaces clicked in one task produced exactly one `POST /start`, one 1-second interval ran, `/status` was fetched once per 2-second poll across both surfaces, and the live transcript text and capture machine were visible at 390px and 1440px in dark and light. Screenshots in `docs/evidence-sidebar` are fixtures, not real capture or real speech recognition.
+
+![Page with live transcript, 1440 dark](evidence-sidebar/03-page-live-1440-dark.png)
+![Page with live transcript, 390 dark](evidence-sidebar/05-page-live-390-dark.png)
+
 ## Not tested
 
 No real Linux PipeWire/systemd or Windows WASAPI two-track call, physical microphone, live Whisper model, real SSH capture machine or live Electron window was exercised. Remaining hardware acceptance: on a consenting disposable capture machine, record both sides, observe live ASR, stop and read the finalized library transcript. No gateway restart, installed-plugin overwrite, capture-device attachment, catalog write, upstream reply or PR9 change was made. CI must be read on the published head separately.

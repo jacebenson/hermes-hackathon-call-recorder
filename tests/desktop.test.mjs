@@ -4,15 +4,18 @@ import assert from 'node:assert/strict'
 
 // Run the actual plugin with a small React/SDK host at its public contributions.
 const notes = [], requests = [], invalidations = [], queries = []
-let values = [], cursor = 0, effects = [], data = {}, response = { ok: true }, sourceQuery = null
+// One state bucket per mounted surface: the pane and the page are separate
+// components with separate state, exactly as two mounts in the real app.
+let store = {}, mount = 'render', cursor = 0, effects = [], data = {}, response = { ok: true }, sourceQuery = null
 let sourceRetries = 0
 const jsx = (type, props, key) => ({ type, props: props || {}, key })
 const react = {
   createElement: jsx,
   useState(init) {
+    const bucket = (store[mount] ||= {})
     const i = cursor++
-    if (!(i in values)) values[i] = typeof init === 'function' ? init() : init
-    return [values[i], v => { values[i] = typeof v === 'function' ? v(values[i]) : v }]
+    if (!(i in bucket)) bucket[i] = typeof init === 'function' ? init() : init
+    return [bucket[i], v => { bucket[i] = typeof v === 'function' ? v(bucket[i]) : v }]
   },
   useRef: v => ({ current: v }), useCallback: fn => fn,
   useEffect: fn => { effects.push(fn) }
@@ -26,6 +29,8 @@ const identity={connectionId:atom('original'),profile:atom('default'),gateway:at
 const sdk = {
   Button: 'Button', Input: 'Input', Badge: 'Badge', StatusDot: 'StatusDot', Switch: 'Switch',
   Select: 'Select', SelectTrigger: 'SelectTrigger', SelectValue: 'SelectValue', SelectContent: 'SelectContent', SelectItem: 'SelectItem',
+  // The documented registry areas a plugin page and its sidebar row live in.
+  ROUTES_AREA: 'routes', SIDEBAR_NAV_AREA: 'sidebar.nav',
   cn: (...v) => v.filter(Boolean).join(' '),
   host: { state: identity, notify: n => notes.push(n), composer: { insertText: async () => true } },
   useQuery: q => { queries.push(q); if (q.queryKey[1] === 'capture-host' && sourceQuery) return sourceQuery; return { data: q.queryKey[1] in data ? data[q.queryKey[1]] : {}, dataUpdatedAt: Date.now() } },
@@ -37,13 +42,18 @@ const localStorage = {
   getItem: key => storage.get(key) ?? null,
   setItem: (key, value) => storage.set(key, value)
 }
-const context = vm.createContext({ window: {}, console, Date, localStorage, setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1, clearInterval() {} })
+// Timers are counted, not assumed: two surfaces must share one 1s clock.
+const liveIntervals = new Map()
+let nextIntervalId = 1
+const context = vm.createContext({ window: {}, console, Date, localStorage, setTimeout: () => 1, clearTimeout() {},
+  setInterval: (fn, ms) => { const id = nextIntervalId++; liveIntervals.set(id, ms); return id },
+  clearInterval: id => liveIntervals.delete(id) })
 const contributions = [], disposers = []
 const ctx = { addEventListener() {}, onDispose: fn => disposers.push(fn), register: c => contributions.push(c), storage: { get: () => true, set() {} },
   rest: async (path, options) => { requests.push({ path, options }); return typeof response === 'function' ? response(path, options) : response } }
 const reloadPlugin = async () => {
   for (const dispose of disposers.splice(0)) dispose()
-  values = []
+  store = {}
   contributions.length = 0
   const module = new vm.SourceTextModule(readFileSync(new URL('../desktop/plugin.js', import.meta.url), 'utf8'), { context })
   await module.link(async spec => {
@@ -60,10 +70,12 @@ assert.deepEqual(contributions.map(c => [c.id, c.area]), [
   ['call-recorder-composer', 'composer.leading'],
   ['call-recorder-strip', 'composer.top'],
   ['call-recorder-chip', 'statusBar.right'],
-  ['call-recorder-pane', 'panes']
-], 'default native UI must register record control, live strip, status and library pane')
+  ['call-recorder-pane', 'panes'],
+  ['call-recorder-page', 'routes'],
+  ['call-recorder-nav', 'sidebar.nav']
+], 'default native UI must register record control, live strip, status, library pane, page and sidebar row')
 const render = id => {
-  cursor = 0; effects = []
+  mount = id; cursor = 0; effects = []
   const root = contributions.find(c => c.id === id).render()
   const tree = root.type(root.props)
   for (const effect of effects) effect()
@@ -74,7 +86,7 @@ const nodes = tree => {
   return [tree, ...[tree.props?.children].flat(Infinity).flatMap(nodes)]
 }
 const button = (tree, label) => nodes(tree).find(n => n.props.children === label)
-const reset = () => { values = []; storage.clear(); notes.length = 0; requests.length = 0; invalidations.length = 0 }
+const reset = () => { store = {}; storage.clear(); notes.length = 0; requests.length = 0; invalidations.length = 0 }
 const rowButton = (tree, title) => nodes(tree).find(n => n.type === 'button' && nodes(n).some(c => c.props.children === title))
 const liveButton = tree => nodes(tree).find(n => n.props['aria-label'] === 'Toggle live transcript')
 
@@ -219,7 +231,7 @@ assert(nodes(tree).some(n => String(n.props.children).includes('current words'))
 assert(!nodes(tree).some(n => n.props.ref))
 assert(button(tree, 'Stop'))
 assert(nodes(tree).some(n => n.props.children === 'Recordings'))
-values = [] // Remount within the same module session.
+store = {} // Remount within the same module session.
 assert.equal(nodes(render('call-recorder-pane')).find(n => n.props['aria-label'] === 'Toggle live transcript').props['aria-expanded'], false)
 reset(); data = { status: {}, recordings: { items: [{ file: 'delete-me', name: 'call-20260101-120000.mkv', title: 'Delete target' }] } }
 tree = render('call-recorder-pane')
@@ -250,7 +262,7 @@ assert.equal(notes.length, 0)
 reset(); data = { status: { recording: true, live: true }, strip: { lines: ['[12:00:00] them> strip words'] } }
 tree = render('call-recorder-strip')
 nodes(tree).find(n => n.props['aria-label'] === 'Toggle live transcript').props.onClick()
-values = []
+store = {}
 tree = render('call-recorder-strip')
 assert.equal(nodes(tree).find(n => n.props['aria-label'] === 'Toggle live transcript').props['aria-expanded'], false)
 assert(nodes(tree).some(n => String(n.props.children).includes('strip words')))
@@ -552,4 +564,107 @@ for (const outcome of ['success','failure']) {
  assert(notes.some(n=>outcome==='success'?n.message.includes('original-backend-receipt.mkv'):n.kind==='error'&&n.message.includes('original backend offline')))
  ctx.rest=original
 }
+// ── Sidebar page: one recorder, two mounts ──────────────────────────────────
+const contribution = id => contributions.find(c => c.id === id)
+reset(); await reloadPlugin()
+
+// The route and its sidebar row are registered with the documented data shape
+// (desktop-plugin-sdk.md "Pages and sidebar nav", app/routes.ts ROUTES_AREA /
+// SIDEBAR_NAV_AREA), and the pane is still there for saved layouts.
+const pageContribution = contribution('call-recorder-page')
+assert.equal(pageContribution.area, 'routes')
+assert.deepEqual(JSON.parse(JSON.stringify(pageContribution.data)), { path: '/call-recorder' })
+assert.equal(pageContribution.title, 'Call recorder')
+assert.equal(typeof pageContribution.render, 'function')
+const navContribution = contribution('call-recorder-nav')
+assert.equal(navContribution.area, 'sidebar.nav')
+assert.deepEqual(JSON.parse(JSON.stringify(navContribution.data)), { path: '/call-recorder', label: 'Call recorder', codicon: 'record' })
+assert.equal(navContribution.render, undefined, 'a sidebar row is a data contribution; the host paints it')
+assert.equal(contribution('call-recorder-pane').area, 'panes')
+// The host resolves a page by data.path (contributedRoutes); exactly one page here.
+assert.equal(contributions.filter(c => c.area === 'routes' && c.data && c.data.path === '/call-recorder').length, 1)
+
+// Navigating to /call-recorder renders the recorder page: idle shows the
+// recordings with their transcripts, and the same controls the pane has.
+reset()
+data = {
+  status: {},
+  'capture-host': { capture_mode: 'computer', host: 'capture-box', backend_host: 'backend-box' },
+  config: { host_label: 'capture-box', transcription: true },
+  recordings: { items: [{ file: '/library/f.mkv', name: 'call-20260101-120000.mkv', title: 'Page recording', machine: 'capture-box', transcript: '/library/f.transcript.md' }] }
+}
+const pageTree = render('call-recorder-page')
+assert.equal(pageTree.props['data-recorder-surface'], 'page')
+assert(nodes(pageTree).some(n => n.type === 'h1' && n.props.children === 'Call recorder'), 'the page names itself')
+assert(nodes(pageTree).some(n => n.props.children === 'Recordings'))
+assert(nodes(pageTree).some(n => n.props.children === 'Page recording'))
+assert(!nodes(pageTree).some(n => n.props['data-live-panel'] || n.props['aria-label'] === 'Live transcript'), 'no live panel while idle')
+assert(button(pageTree, 'Record').props.disabled === false, 'idle page can start')
+assert(!nodes(pageTree).some(n => n.props['aria-label'] === 'Toggle live transcript'), 'the page has no disclosure; the pane keeps it')
+assert(nodes(render('call-recorder-pane')).some(n => n.props['aria-label'] === 'Toggle live transcript'), 'pane disclosure preserved')
+// Expanding a recording on the page reads its transcript through the same route.
+nodes(pageTree).find(n => n.type === 'button' && nodes(n).some(c => c.props.children === 'Page recording')).props.onClick()
+const expandedPage = render('call-recorder-page')
+assert(nodes(expandedPage).some(n => typeof n.type === 'function' && n.props.path === '/library/f.transcript.md'))
+
+// While recording the page leads with the live transcript tail, labelled with
+// the machine that is capturing, with one timer and one Record/Stop control.
+reset()
+data = {
+  status: { recording: true, live: true, elapsed: 61, bytes: 2097152 },
+  'capture-host': { capture_mode: 'computer', host: 'capture-box', backend_host: 'backend-box' },
+  config: { host_label: 'capture-box', transcription: true, transcription_detail: 'tiny.en on cpu' },
+  live: { lines: ['[00:01:00] them> earlier words', '[00:01:02] you> the page shows live words'] },
+  recordings: { items: [] }
+}
+const recordingPage = render('call-recorder-page')
+assert.equal(nodes(recordingPage).filter(n => n.props['aria-label'] === 'Live transcript').length, 1)
+assert(nodes(recordingPage).some(n => n.props.children === '· capture-box'), 'live panel names the capture machine')
+assert(nodes(recordingPage).some(n => String(n.props.children).includes('the page shows live words')), 'live transcript text is on the page')
+assert.equal(nodes(recordingPage).filter(n => n.props.children === 'Record').length, 0, 'one control: no Record while recording')
+assert(button(recordingPage, 'Stop'))
+assert.equal(nodes(recordingPage).filter(n => n.type === 'Badge').length, 1, 'one timer')
+assert.equal(nodes(recordingPage).find(n => n.type === 'Badge').props.children, '01:01')
+// The pane still shows its restored two-button workflow and disclosure.
+const recordingPane = render('call-recorder-pane')
+assert(button(recordingPane, 'Record') && button(recordingPane, 'Stop'))
+assert(nodes(recordingPane).some(n => n.props['aria-label'] === 'Toggle live transcript'))
+
+// One shared capture state: both mounts are handed the same ctx object, so the
+// same browser capture, storage and REST routing serve both.
+assert.equal(contribution('call-recorder-pane').render().props.ctx, contribution('call-recorder-page').render().props.ctx)
+assert.equal(pageContribution.render().props.ctx.browserCapture, contribution('call-recorder-pane').render().props.ctx.browserCapture)
+// Both surfaces poll the same React Query keys, which is what makes the host
+// dedupe the fetch (proved against a real QueryClient in the browser proof).
+reset()
+data = { status: {}, 'capture-host': { capture_mode: 'computer', host: 'capture-box' }, config: {}, recordings: { items: [] } }
+render('call-recorder-pane'); render('call-recorder-page')
+const statusKeys = queries.filter(q => q.queryKey[1] === 'status').map(q => JSON.stringify(q.queryKey))
+assert(statusKeys.length >= 2, 'both surfaces ask for status')
+assert.equal(new Set(statusKeys).size, 1, 'both surfaces ask with the same key')
+assert.equal(queries.filter(q => q.queryKey[1] === 'live').map(q => JSON.stringify(q.queryKey)).filter((v, i, a) => a.indexOf(v) === i).length, 1)
+
+// One start call: clicking Record on both surfaces posts exactly one /start.
+reset()
+data = { status: {}, 'capture-host': { capture_mode: 'computer', host: 'capture-box' }, config: {}, recordings: { items: [] } }
+let releaseStart
+response = () => new Promise(resolve => { releaseStart = () => resolve({ ok: true }) })
+const paneStart = button(render('call-recorder-pane'), 'Record').props.onClick()
+const pageStart = button(render('call-recorder-page'), 'Record').props.onClick()
+await new Promise(r => setTimeout(r, 0))
+assert.equal(requests.filter(r => r.path === '/start').length, 1, 'two surfaces must not post two starts')
+releaseStart(); await Promise.all([paneStart, pageStart])
+
+// One running interval: with pane and page mounted over one recording, the
+// shared clock starts exactly one 1s interval.
+reset()
+liveIntervals.clear()
+await reloadPlugin() // fresh module, so the count starts from zero clocks
+data = { status: { recording: true, live: true, elapsed: 5 }, 'capture-host': { capture_mode: 'computer', host: 'capture-box' }, config: {}, live: { lines: ['[00:00:05] you> ticking'] }, recordings: { items: [] } }
+render('call-recorder-pane')
+render('call-recorder-page')
+assert.equal([...liveIntervals.values()].filter(ms => ms === 1000).length, 1, 'exactly one 1s interval for both surfaces')
+render('call-recorder-page')
+assert.equal([...liveIntervals.values()].filter(ms => ms === 1000).length, 1, 'a re-render must not add a clock')
+
 console.log('Desktop behavior checks passed.')

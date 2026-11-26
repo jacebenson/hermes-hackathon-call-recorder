@@ -13,6 +13,14 @@ Enable the desktop half in Hermes plugin settings. Open Call Recorder, check the
 
 New installs select native computer capture on the Hermes backend. That may be a different machine from the screen you are using. Select the actual audio machine before recording; remote capture uses your existing SSH setup. Existing explicit host and browser choices stay selected. Switching sources preserves configured machines, titles and library layout.
 
+## Sidebar page
+
+The recorder is also a full page: a **Call recorder** row sits in the sidebar under Scheduled jobs (record icon). Click it to open `/call-recorder`, which renders the same recorder as the pane, not a second copy.
+
+While a call records, the page leads with the live transcript tail: one scrolling, monospaced panel headed **Live transcript · <capture machine>**, one timer and bytes in the top right, and one **Record/Stop** button. Nothing is expanded or revealed first; speech appears as it arrives. When idle the page shows the recordings list, and expanding a row reads its transcript in place. The pane is unchanged and still belongs to your saved layout.
+
+Pane and page share one capture state: the same React Query keys and one 1-second clock, so two visible surfaces poll the backend once and cannot post two starts.
+
 ## Two audio locations
 
 - **This browser** says "Microphone on this device only". It requests microphone permission only when you press Record. It records one voice mix, not speaker-separated audio, and does not record system audio. Live transcription is unavailable. HTTPS or localhost, microphone permission, and a browser supporting `getUserMedia` and MediaRecorder with WebM, Ogg or MP4 audio are required. The backend needs `ffmpeg` and `ffprobe`. No SSH setup is needed for browser capture.

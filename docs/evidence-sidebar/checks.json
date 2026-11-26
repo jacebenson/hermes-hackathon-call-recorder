@@ -1,0 +1,115 @@
+{
+  "out": "/home/jace/workspace/holly/call-recorder-sidebar/docs/evidence-sidebar",
+  "checks": [
+    {
+      "name": "real loader loaded the packaged plugin",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "route contribution registered (routes area)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "sidebar nav contribution registered (sidebar.nav area)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "sidebar row exposes the accessible name Call recorder",
+      "ok": true,
+      "detail": "{\"label\":\"Call recorder\",\"name\":null,\"tag\":\"BUTTON\",\"w\":235,\"h\":28,\"tour\":\"sidebar-nav-call-recorder:call-recorder-nav\",\"icon\":true,\"html\":\"<button class=\\\"peer/menu-button items-center overflow-hidden p-2 ring-sidebar-ring focus-visible:outline-hidden group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-\"}"
+    },
+    {
+      "name": "clicking the sidebar row navigates to the page route",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "contributed page mounted in the workspace",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "page names itself Call recorder",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "pane still mounted beside the page",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "nav row highlights on its own path",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "two surfaces clicked, exactly one POST /start",
+      "ok": true,
+      "detail": "starts=1 requests=6"
+    },
+    {
+      "name": "page shows a live transcript panel",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "live transcript text is readable on the page",
+      "ok": true,
+      "detail": "[\"Live transcript\\n· fixture-capture-box\\nauto-scroll\\n00:00:03\\nthem\\nCan you see the transcript on the page yet?\\n00:00:07\\nyou\\nYes, it is scrolling in as we talk.\\n00:00:11\\nthem\\nAnd the sidebar row opens the full page?\\n00:00:14\\nyou\\nIt does, and the pane is still in the layout.\\n00:00:19\\nthem\\nGood. Let us ship it tonight.\"]"
+    },
+    {
+      "name": "live panel names the capture machine",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "one timer on the page",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "one Record/Stop control on the page",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "exactly one running 1s interval with pane and page mounted",
+      "ok": true,
+      "detail": "1"
+    },
+    {
+      "name": "both surfaces share one status poll (React Query dedupe)",
+      "ok": true,
+      "detail": "/status requests in ~6.5s: 4"
+    },
+    {
+      "name": "390px layout does not overflow horizontally",
+      "ok": true,
+      "detail": "{\"w\":390,\"h\":844,\"pageW\":390,\"overflowX\":false,\"liveH\":506,\"timer\":\"Call recorder\\nrecording on fixture-capture-box\\n00:23\\n1.0 MB\\nAudio source\\nMicrophone and system audio, saved on fixture-capture-box.\\nStop\\nAdvanced settings and diagnostics\\nLive transcript\\n· fixture-capture-box\\nauto-scroll\\n00:00:03\\nthem\\nCan you see the transcript on the page yet?\\n00:00:07\\nyou\\nYes, it \"}"
+    },
+    {
+      "name": "live panel keeps usable height at 390px",
+      "ok": true,
+      "detail": "506"
+    },
+    {
+      "name": "renderer has no uncaught errors",
+      "ok": true,
+      "detail": "[]"
+    }
+  ],
+  "sizes": {
+    "w": 390,
+    "h": 844,
+    "pageW": 390,
+    "overflowX": false,
+    "liveH": 506,
+    "timer": "Call recorder\nrecording on fixture-capture-box\n00:23\n1.0 MB\nAudio source\nMicrophone and system audio, saved on fixture-capture-box.\nStop\nAdvanced settings and diagnostics\nLive transcript\n· fixture-capture-box\nauto-scroll\n00:00:03\nthem\nCan you see the transcript on the page yet?\n00:00:07\nyou\nYes, it "
+  },
+  "requests": 20,
+  "fixtures": "REST fixture only; no physical capture or live ASR"
+}
